@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Poly OS — Interactive Hybrid Experience</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><polygon points='12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5' fill='%230a84ff'/></svg>">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d0e15">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Poly OS">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+    }
+    if ('caches' in window) {
+      caches.keys().then(names => names.forEach(n => caches.delete(n)));
+    }
+  </script>
+  <link rel="stylesheet" href="style.css?v=2.6">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body class="dark-mode">
+  <div id="desktop">
+    <!-- Live Wallpaper Interactive Canvas (Aurora / Particle Constellation / Cupertino Shaders) -->
+    <canvas id="live-wallpaper-canvas"></canvas>
+
+    <!-- Top Status / Menu Bar (Hybrid iOS + Windows) -->
+    <header id="top-bar">
+      <div class="left-group">
+        <button id="poly-logo-btn" class="menu-pill" title="Poly System Menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5" />
+          </svg>
+          <span class="os-name">Poly</span>
+        </button>
+
+        <!-- Immersive Full-Screen Window Controls (macOS Top Bar Integration) -->
+        <div id="topbar-window-controls" class="topbar-window-controls" style="display: none;">
+          <button class="traffic-light btn-close" id="topbar-close-btn" title="Close Window (Ctrl+W)">✕</button>
+          <button class="traffic-light btn-min" id="topbar-min-btn" title="Minimize Window (Ctrl+M)">−</button>
+          <button class="traffic-light btn-max is-restore" id="topbar-restore-btn" title="Restore Down / Exit Full Screen (Esc)">🗗</button>
+        </div>
+
+        <div class="topbar-divider"></div>
+        <span class="active-app-title" id="focused-app-name">Finder & Workspace</span>
+        <div class="topbar-divider"></div>
+        <div class="quick-views">
+          <div class="workspace-switcher" id="workspace-switcher">
+            <button class="ws-pill-btn active" data-ws="1" title="Workspace 1 (Ctrl+Alt+1)">Desktop 1</button>
+            <button class="ws-pill-btn" data-ws="2" title="Workspace 2 (Ctrl+Alt+2)">Desktop 2</button>
+          </div>
+          <button class="pill-btn" id="spotlight-btn" title="Spotlight Universal Search (Cmd/Win + Space)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span>Search</span>
+            <kbd class="topbar-shortcut">⌘ Space</kbd>
+          </button>
+          <button class="pill-btn" id="expose-btn" title="App Exposé (Win + Tab / 3-Finger Swipe)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            <span>Exposé</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="center-group">
+        <!-- Dynamic Island / Status Pill -->
+        <div id="dynamic-island" class="island-idle">
+          <div class="island-icon" id="island-icon">🎵</div>
+          <span class="island-text" id="island-text">Poly OS • Smooth 120Hz Engine Active</span>
+        </div>
+      </div>
+
+      <div class="right-group">
+        <!-- Notification Center Bell -->
+        <button class="menu-pill topbar-icon-btn" id="notif-btn" title="Notification Center (3 Alerts)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span class="notif-badge" id="notif-badge"></span>
+        </button>
+
+        <!-- Power / Battery Indicator -->
+        <button class="menu-pill topbar-icon-btn battery-pill" id="battery-btn" title="Power: 98% (Power Adapter Connected • Balanced Mode)">
+          <span class="battery-icon">⚡</span>
+          <span class="battery-pct" id="battery-pct">98%</span>
+        </button>
+
+        <!-- Unified Control Center Toggle -->
+        <button class="menu-pill control-center-toggle" id="cc-btn" title="Control Center (Wi-Fi, Bluetooth, Audio, Power)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="4" y1="21" x2="4" y2="14"></line>
+            <line x1="4" y1="10" x2="4" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12" y2="3"></line>
+            <line x1="20" y1="21" x2="20" y2="16"></line>
+            <line x1="20" y1="12" x2="20" y2="3"></line>
+            <line x1="1" y1="14" x2="7" y2="14"></line>
+            <line x1="9" y1="8" x2="15" y2="8"></line>
+            <line x1="17" y1="16" x2="23" y2="16"></line>
+          </svg>
+        </button>
+
+        <!-- System Clock -->
+        <div class="clock" id="system-clock">12:00 PM</div>
+      </div>
+    </header>
+
+    <!-- Poly System Menu (Apple Menu + Windows Start Menu Hybrid) -->
+    <div id="poly-system-menu" class="system-menu-dropdown hidden">
+      <div class="menu-item" id="sys-about">
+        <span class="menu-icon">ℹ️</span>
+        <span class="menu-label">About Poly OS</span>
+        <span class="menu-meta">v1.0</span>
+      </div>
+      <div class="menu-separator"></div>
+      <div class="menu-item" id="sys-settings">
+        <span class="menu-icon">⚙️</span>
+        <span class="menu-label">System Preferences...</span>
+        <kbd class="menu-kbd">⌘,</kbd>
+      </div>
+      <div class="menu-item" id="sys-appstore">
+        <span class="menu-icon">🛍️</span>
+        <span class="menu-label">App Store & Packages</span>
+      </div>
+      <div class="menu-item" id="sys-activity">
+        <span class="menu-icon">📊</span>
+        <span class="menu-label">Activity Monitor</span>
+      </div>
+      <div class="menu-separator"></div>
+      <div class="menu-item" id="sys-sleep">
+        <span class="menu-icon">🌙</span>
+        <span class="menu-label">Sleep Display</span>
+      </div>
+      <div class="menu-item" id="sys-restart">
+        <span class="menu-icon">🔄</span>
+        <span class="menu-label">Restart Poly Engine</span>
+      </div>
+      <div class="menu-item" id="sys-reset">
+        <span class="menu-icon">🧹</span>
+        <span class="menu-label">Reset Workspace Layout</span>
+      </div>
+      <div class="menu-separator"></div>
+      <div class="menu-item" id="sys-install">
+        <span class="menu-icon">📥</span>
+        <span class="menu-label">Install Poly OS App (PWA)</span>
+        <span class="menu-meta" id="install-status-pill">Offline Ready</span>
+      </div>
+    </div>
+
+    <!-- Snap Ghost Overlay (Shows Windows-style magnetic snap area) -->
+    <div id="snap-ghost" class="hidden"></div>
+
+    <!-- Windows 11-style Snap Assist Overlay (Prompts to tile other windows into empty half) -->
+    <div id="snap-assist-overlay" class="hidden">
+      <div class="snap-assist-header">
+        <span class="snap-assist-title">Snap Assist • Choose a window to tile</span>
+        <button id="snap-assist-close" class="snap-assist-close-btn">✕</button>
+      </div>
+      <div class="snap-assist-grid" id="snap-assist-grid"></div>
+    </div>
+
+    <!-- Glassmorphic Alt+Tab / Cmd+Tab HUD Window Switcher -->
+    <div id="alttab-hud" class="hidden">
+      <div class="alttab-box">
+        <div class="alttab-header">
+          <span class="alttab-indicator">⇥ Cycle with Tab • Release Alt to Switch</span>
+        </div>
+        <div class="alttab-grid" id="alttab-grid">
+          <!-- Dynamically populated cards -->
+        </div>
+      </div>
+    </div>
+
+    <!-- FancyZones Live Grid Overlay (Hold Shift While Dragging) -->
+    <div id="fancyzones-overlay" class="hidden">
+      <div class="fancyzones-hint">Hold <b>Shift</b> while dragging to snap into FancyZones • Release over any zone</div>
+      <div id="fancyzones-slots-container" class="fancyzones-slots-container"></div>
+    </div>
+
+    <!-- Windows 11-style Snap Layouts Flyout Menu (Hover on Maximize or Win+Z) -->
+    <div id="snap-layouts-flyout" class="hidden">
+      <div class="snap-layouts-header">
+        <span>Snap Layouts</span>
+        <kbd class="topbar-shortcut">Win + Z</kbd>
+      </div>
+      <div class="snap-layouts-grid">
+        <!-- 1. Split 50/50 -->
+        <div class="snap-layout-card" data-layout="split">
+          <div class="mini-grid grid-split">
+            <div class="mini-slot" data-zone="0" title="Snap Left Half"></div>
+            <div class="mini-slot" data-zone="1" title="Snap Right Half"></div>
+          </div>
+          <span class="mini-label">50 / 50</span>
+        </div>
+
+        <!-- 2. Priority 3-Column -->
+        <div class="snap-layout-card" data-layout="priority">
+          <div class="mini-grid grid-priority">
+            <div class="mini-slot" data-zone="0" title="Snap Left (25%)"></div>
+            <div class="mini-slot" data-zone="1" title="Snap Center Focus (50%)"></div>
+            <div class="mini-slot" data-zone="2" title="Snap Right (25%)"></div>
+          </div>
+          <span class="mini-label">3-Column</span>
+        </div>
+
+        <!-- 3. Quad 2x2 Grid -->
+        <div class="snap-layout-card" data-layout="quad">
+          <div class="mini-grid grid-quad">
+            <div class="mini-slot" data-zone="0" title="Top-Left"></div>
+            <div class="mini-slot" data-zone="1" title="Top-Right"></div>
+            <div class="mini-slot" data-zone="2" title="Bottom-Left"></div>
+            <div class="mini-slot" data-zone="3" title="Bottom-Right"></div>
+          </div>
+          <span class="mini-label">2 x 2 Quad</span>
+        </div>
+
+        <!-- 4. Master-Stack -->
+        <div class="snap-layout-card" data-layout="master-stack">
+          <div class="mini-grid grid-master-stack">
+            <div class="mini-slot" data-zone="0" title="Master (66%)"></div>
+            <div class="mini-slot-stack">
+              <div class="mini-slot" data-zone="1" title="Stack Top (34%)"></div>
+              <div class="mini-slot" data-zone="2" title="Stack Bottom (34%)"></div>
+            </div>
+          </div>
+          <span class="mini-label">Master Stack</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FancyZones Layout Selector & Zone Editor Modal -->
+    <div id="fancyzones-modal" class="quicklook-overlay hidden">
+      <div class="quicklook-box fancyzones-modal-box">
+        <div class="quicklook-header">
+          <div class="ql-title-group">
+            <span class="ql-file-icon">📐</span>
+            <div>
+              <div class="ql-file-name">FancyZones Layouts & Multi-Tasking Tiling</div>
+              <div class="ql-file-meta">Hold Shift while dragging windows to tile into custom zones</div>
+            </div>
+          </div>
+          <button class="ql-close-btn" id="fz-modal-close" title="Close (Esc)">✕</button>
+        </div>
+        <div class="quicklook-body">
+          <div class="fz-modal-content">
+            <div class="fz-section-title">Select Active Desktop Tiling Template</div>
+            <div class="fz-templates-grid">
+              <div class="fz-template-card active" data-template="priority">
+                <div class="fz-preview-box fz-prev-priority">
+                  <div class="prev-col prev-side"></div>
+                  <div class="prev-col prev-main"><span>Focus</span></div>
+                  <div class="prev-col prev-side"></div>
+                </div>
+                <div class="fz-card-info">
+                  <strong>3-Column Priority</strong>
+                  <p>25% Sidebars + 50% Center Main Stage</p>
+                </div>
+              </div>
+
+              <div class="fz-template-card" data-template="split">
+                <div class="fz-preview-box fz-prev-split">
+                  <div class="prev-col"></div>
+                  <div class="prev-col"></div>
+                </div>
+                <div class="fz-card-info">
+                  <strong>Split 50 / 50</strong>
+                  <p>Classic dual window side-by-side tiling</p>
+                </div>
+              </div>
+
+              <div class="fz-template-card" data-template="quad">
+                <div class="fz-preview-box fz-prev-quad">
+                  <div class="prev-quad-grid">
+                    <div></div><div></div><div></div><div></div>
+                  </div>
+                </div>
+                <div class="fz-card-info">
+                  <strong>2 x 2 Quad Grid</strong>
+                  <p>Four balanced quadrants for telemetry & terminals</p>
+                </div>
+              </div>
+
+              <div class="fz-template-card" data-template="master-stack">
+                <div class="fz-preview-box fz-prev-master">
+                  <div class="prev-col prev-master"><span>Master</span></div>
+                  <div class="prev-stack"><div></div><div></div></div>
+                </div>
+                <div class="fz-card-info">
+                  <strong>Master - Stack</strong>
+                  <p>66% Editor Master + 2 Stacked Auxiliaries</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="fz-settings-row">
+              <div class="fz-setting-item">
+                <label>Zone Padding (Gap)</label>
+                <input type="range" id="fz-gap-slider" min="0" max="32" value="12">
+                <span id="fz-gap-val">12 px</span>
+              </div>
+              <div class="fz-setting-item">
+                <label>Shift-Drag Gesture</label>
+                <span class="clock-pill text-accent-cyan">Enabled (Classic PowerToys)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="quicklook-footer">
+          <div class="ql-shortcut-hint">Shortcuts: <b>Win + Z</b> (Snap Menu) • <b>Win + 1..4</b> (Snap to Zone)</div>
+          <button class="btn-primary-ql" id="fz-apply-btn">Apply Layout</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Desktop Smart Widget (Dedicated Performance Monitor) -->
+    <div id="desktop-smart-widget" class="desktop-widget perf-monitor-widget" data-widget-id="perf">
+      <div class="widget-header">
+        <div class="widget-title-row">
+          <span class="widget-drag-handle" title="Drag to move widget anywhere">⠿</span>
+          <span class="widget-icon">⚡</span>
+          <span class="widget-title">Poly Engine</span>
+        </div>
+        <span class="widget-badge" id="widget-hz-badge">120 Hz Active</span>
+      </div>
+      <div class="widget-body">
+        <div class="perf-grid">
+          <!-- 1. CPU Usage -->
+          <div class="perf-metric-card">
+            <div class="metric-top">
+              <span class="metric-label">CPU Usage</span>
+              <span class="metric-val" id="widget-cpu-val">14%</span>
+            </div>
+            <div class="widget-bar">
+              <div class="widget-bar-fill fill-emerald" id="widget-cpu-fill" style="width: 14%;"></div>
+            </div>
+            <span class="metric-sub">Hybrid 8-Core Engine</span>
+          </div>
+
+          <!-- 2. Memory / RAM (Synchronized) -->
+          <div class="perf-metric-card">
+            <div class="metric-top">
+              <span class="metric-label">Memory</span>
+              <span class="metric-val" id="widget-ram-val">218 MB</span>
+            </div>
+            <div class="widget-bar">
+              <div class="widget-bar-fill fill-blue" id="widget-ram-fill" style="width: 21%;"></div>
+            </div>
+            <span class="metric-sub" id="widget-ram-sub">1024 MB ZRAM Pool</span>
+          </div>
+
+          <!-- 3. Refresh Rate -->
+          <div class="perf-metric-card">
+            <div class="metric-top">
+              <span class="metric-label">Refresh Rate</span>
+              <span class="metric-val text-accent-cyan" id="widget-hz-val">120 Hz</span>
+            </div>
+            <div class="widget-bar">
+              <div class="widget-bar-fill fill-cyan" id="widget-hz-fill" style="width: 100%;"></div>
+            </div>
+            <span class="metric-sub">ProMotion Dynamic VSync</span>
+          </div>
+
+          <!-- 4. Thermal / Temperature -->
+          <div class="perf-metric-card">
+            <div class="metric-top">
+              <span class="metric-label">Temperature</span>
+              <span class="metric-val text-accent-amber" id="widget-temp-val">41°C</span>
+            </div>
+            <div class="widget-bar">
+              <div class="widget-bar-fill fill-amber" id="widget-temp-fill" style="width: 41%;"></div>
+            </div>
+            <span class="metric-sub" id="widget-temp-status">Thermal State: Optimal</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Glass Clock & Calendar Widget -->
+    <div id="desktop-clock-widget" class="desktop-widget glass-clock-widget" data-widget-id="clock">
+      <div class="widget-header">
+        <div class="widget-title-row">
+          <span class="widget-drag-handle" title="Drag to move widget anywhere">⠿</span>
+          <span class="widget-icon">🕒</span>
+          <span class="widget-title">Time & Calendar</span>
+        </div>
+        <span class="widget-badge" id="widget-date-badge">Today</span>
+      </div>
+      <div class="widget-body clock-widget-body">
+        <div class="clock-time-display" id="clock-widget-time">12:00:00 PM</div>
+        <div class="clock-date-display" id="clock-widget-date">Tuesday, October 20</div>
+        <div class="clock-sub-pills">
+          <span class="clock-pill">UTC+05:30</span>
+          <span class="clock-pill">Week 43</span>
+          <span class="clock-pill text-accent-cyan">VSync Synced</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Glass Weather & Atmosphere Widget -->
+    <div id="desktop-weather-widget" class="desktop-widget glass-weather-widget" data-widget-id="weather">
+      <div class="widget-header">
+        <div class="widget-title-row">
+          <span class="widget-drag-handle" title="Drag to move widget anywhere">⠿</span>
+          <span class="widget-icon" id="weather-widget-icon">⛅</span>
+          <span class="widget-title">Cupertino Atmosphere</span>
+        </div>
+        <span class="widget-badge">Live Air</span>
+      </div>
+      <div class="widget-body weather-widget-body">
+        <div class="weather-temp-row">
+          <span class="weather-temp" id="weather-temp">22°C</span>
+          <div class="weather-condition">
+            <span class="weather-summary" id="weather-summary">Partly Cloudy</span>
+            <span class="weather-range">H: 26° • L: 17°</span>
+          </div>
+        </div>
+        <div class="weather-details-grid">
+          <div class="weather-detail-item">
+            <span class="detail-label">AQI</span>
+            <span class="detail-val text-accent-cyan">28 (Good)</span>
+          </div>
+          <div class="weather-detail-item">
+            <span class="detail-label">Humidity</span>
+            <span class="detail-val">54%</span>
+          </div>
+          <div class="weather-detail-item">
+            <span class="detail-label">Wind</span>
+            <span class="detail-val">8 km/h NW</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactive Sticky Note Widget -->
+    <div id="desktop-sticky-widget" class="desktop-widget glass-sticky-widget" data-widget-id="sticky">
+      <div class="widget-header">
+        <div class="widget-title-row">
+          <span class="widget-drag-handle" title="Drag to move widget anywhere">⠿</span>
+          <span class="widget-icon">📌</span>
+          <span class="widget-title">Quick Scratchpad</span>
+        </div>
+        <div class="sticky-color-picker">
+          <span class="color-dot dot-yellow active" data-color="yellow"></span>
+          <span class="color-dot dot-blue" data-color="blue"></span>
+          <span class="color-dot dot-purple" data-color="purple"></span>
+          <span class="color-dot dot-green" data-color="green"></span>
+        </div>
+      </div>
+      <div class="widget-body sticky-widget-body">
+        <textarea id="desktop-sticky-text" placeholder="Drop thoughts, terminal commands, or sprint tasks here...">• Press Alt+Tab for Glass Window HUD
+• Drag widgets anywhere on the screen!
+• Right-click desktop to toggle Aurora live wallpaper
+• Type commands in Virtual Shell: neofetch, top, matrix</textarea>
+      </div>
+    </div>
+
+    <!-- Desktop Files Grid (Direct interactive files with drag-and-drop & Quick Look) -->
+    <div id="desktop-files">
+      <div class="desktop-file" data-file="Poly_Whitepaper.pdf" data-type="pdf" data-size="4.2 MB" draggable="true" title="Double click for Quick Look or drag into Files">
+        <div class="desktop-file-icon">📄</div>
+        <span class="desktop-file-name">Poly_Whitepaper.pdf</span>
+      </div>
+      <div class="desktop-file" data-file="Project-Poly" data-type="folder" data-size="12 items" draggable="true" title="Double click to open folder or drag into Files">
+        <div class="desktop-file-icon">📁</div>
+        <span class="desktop-file-name">Project-Poly</span>
+      </div>
+      <div class="desktop-file" data-file="120Hz_Demo.mp4" data-type="video" data-size="18.5 MB" draggable="true" title="Double click for Quick Look or drag into Files">
+        <div class="desktop-file-icon">🎬</div>
+        <span class="desktop-file-name">120Hz_Demo.mp4</span>
+      </div>
+      <div class="desktop-file" data-file="Cupertino_5K.heic" data-type="image" data-size="8.1 MB" draggable="true" title="Double click for Quick Look or drag into Files">
+        <div class="desktop-file-icon">🖼️</div>
+        <span class="desktop-file-name">Cupertino_5K.heic</span>
+      </div>
+      <div class="desktop-file" data-file="daemon.rs" data-type="code" data-size="24 KB" draggable="true" title="Double click for Quick Look or drag into Files">
+        <div class="desktop-file-icon">🦀</div>
+        <span class="desktop-file-name">daemon.rs</span>
+      </div>
+    </div>
+
+    <!-- Desktop Context Menu (Right-Click) -->
+    <div id="desktop-context-menu" class="desktop-ctx-menu hidden">
+      <div class="ctx-item" id="ctx-open">
+        <span>🚀 Open</span>
+        <kbd>↵</kbd>
+      </div>
+      <div class="ctx-item" id="ctx-quicklook">
+        <span>👁️ Quick Look Preview</span>
+        <kbd>Space</kbd>
+      </div>
+      <div class="ctx-item" id="ctx-files-app">
+        <span>📁 Show in Files App</span>
+      </div>
+      <div class="ctx-separator"></div>
+      <div class="ctx-item" id="ctx-live-wallpaper">
+        <span>🌌 Live Wallpaper Engine</span>
+        <kbd>L</kbd>
+      </div>
+      <div class="ctx-item" id="ctx-wallpaper">
+        <span>🖼️ Next Static Theme</span>
+        <kbd>W</kbd>
+      </div>
+      <div class="ctx-item" id="ctx-toggle-widgets">
+        <span>🧩 Toggle Desktop Widgets</span>
+      </div>
+      <div class="ctx-item" id="ctx-reset-widgets">
+        <span>📍 Reset Widget Positions</span>
+      </div>
+      <div class="ctx-item" id="ctx-fancyzones">
+        <span>📐 FancyZones Tiling Layouts...</span>
+        <kbd>Win+Z</kbd>
+      </div>
+      <div class="ctx-item" id="ctx-clean-icons">
+        <span>🧹 Align Desktop Icons</span>
+      </div>
+      <div class="ctx-separator"></div>
+      <div class="ctx-item text-danger" id="ctx-trash">
+        <span>🗑️ Move to Trash</span>
+        <kbd>⌫</kbd>
+      </div>
+    </div>
+
+    <!-- Desktop File Quick Look Modal -->
+    <div id="quicklook-modal" class="quicklook-overlay hidden">
+      <div class="quicklook-box">
+        <div class="quicklook-header">
+          <div class="ql-title-group">
+            <span class="ql-file-icon" id="ql-icon">📄</span>
+            <div>
+              <div class="ql-file-name" id="ql-name">Poly_Whitepaper.pdf</div>
+              <div class="ql-file-meta" id="ql-meta">PDF Document • 4.2 MB • Modified Today</div>
+            </div>
+          </div>
+          <button class="ql-close-btn" id="ql-close" title="Close Preview (Esc)">✕</button>
+        </div>
+        <div class="quicklook-body" id="ql-body">
+          <!-- Dynamic rich preview content injected here -->
+        </div>
+        <div class="quicklook-footer">
+          <div class="ql-shortcut-hint">Press <b>Space</b> or <b>Esc</b> to close</div>
+          <button class="btn-primary-ql" id="ql-open-app">Open in Application</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Window Workspace Area -->
+    <main id="workspace">
+      <!-- Windows will be dynamically generated and managed by shell.js -->
+    </main>
+
+    <!-- App Exposé Overlay -->
+    <div id="expose-overlay" class="hidden">
+      <div class="expose-header">
+        <h2>App Exposé & Workspaces</h2>
+        <p>Smooth spring transitions with instant interruptibility</p>
+      </div>
+      <div id="expose-grid"></div>
+    </div>
+
+    <!-- Spotlight Universal Search (iOS Spotlight + PowerToys Run) -->
+    <div id="spotlight-overlay" class="hidden">
+      <div id="spotlight-box">
+        <div class="spotlight-input-row">
+          <svg class="spotlight-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="spotlight-input" placeholder="Search apps, files, math (e.g. 24 * 7), or commands..." autocomplete="off" spellcheck="false">
+          <kbd class="spotlight-esc" id="spotlight-close-btn">ESC</kbd>
+        </div>
+        <div id="spotlight-results" class="spotlight-results">
+          <!-- Dynamically populated results -->
+        </div>
+        <div class="spotlight-footer">
+          <div class="spotlight-hint">Navigate <b>↑ ↓</b></div>
+          <div class="spotlight-hint">Open / Run <b>↵ Enter</b></div>
+          <div class="spotlight-hint">Close <b>Esc</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Glassmorphic iOS Control Center -->
+    <aside id="control-center" class="hidden">
+      <div class="cc-grid">
+        <!-- Connectivity Block -->
+        <div class="cc-card connectivity-card">
+          <div class="toggle-row">
+            <button class="cc-btn active" id="toggle-wifi">
+              <span class="icon">📶</span>
+              <div class="btn-info"><span class="title">Wi-Fi</span><span class="subtitle">Poly-Mesh 6E</span></div>
+            </button>
+            <button class="cc-btn active" id="toggle-bluetooth">
+              <span class="icon">ᛒ</span>
+              <div class="btn-info"><span class="title">Bluetooth</span><span class="subtitle">AirPods Pro</span></div>
+            </button>
+          </div>
+          <div class="toggle-row">
+            <button class="cc-btn" id="toggle-airdrop">
+              <span class="icon">📡</span>
+              <div class="btn-info"><span class="title">PolyDrop</span><span class="subtitle">Contacts Only</span></div>
+            </button>
+            <button class="cc-btn active" id="toggle-stage">
+              <span class="icon">🪟</span>
+              <div class="btn-info"><span class="title">Aero Snap</span><span class="subtitle">Active</span></div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sliders -->
+        <div class="cc-card sliders-card">
+          <div class="slider-group">
+            <span class="slider-icon">☀️</span>
+            <input type="range" min="10" max="100" value="85" id="brightness-slider">
+          </div>
+          <div class="slider-group">
+            <span class="slider-icon">🔊</span>
+            <input type="range" min="0" max="100" value="70" id="volume-slider">
+          </div>
+        </div>
+
+        <!-- Media Player Pill -->
+        <div class="cc-card media-card">
+          <div class="media-art" id="cc-media-art">🎵</div>
+          <div class="media-details">
+            <span class="media-song" id="cc-media-title">Solar Wind (120Hz Mix)</span>
+            <span class="media-artist">Poly Audio Engine</span>
+            <div class="media-controls">
+              <button id="cc-media-prev">⏮</button>
+              <button id="play-pause-btn">▶</button>
+              <button id="cc-media-next">⏭</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Power & Mode Management -->
+        <div class="cc-card power-card">
+          <div class="card-title">Poly Energy Engine</div>
+          <div class="mode-selector">
+            <button class="mode-pill" data-mode="low">Eco (60Hz Freeze)</button>
+            <button class="mode-pill active" data-mode="balanced">Balanced</button>
+            <button class="mode-pill" data-mode="turbo">Turbo 120Hz</button>
+          </div>
+        </div>
+
+        <!-- Synchronized Telemetry Status Snapshot -->
+        <div class="cc-card telemetry-card">
+          <div class="card-title">Live System Status</div>
+          <div class="cc-telemetry-row">
+            <div class="cc-stat-chip">
+              <span class="chip-label">RAM Pool</span>
+              <span class="chip-val" id="cc-ram-val">218 MB</span>
+            </div>
+            <div class="cc-stat-chip">
+              <span class="chip-label">CPU Load</span>
+              <span class="chip-val" id="cc-cpu-val">14%</span>
+            </div>
+            <div class="cc-stat-chip">
+              <span class="chip-label">Display</span>
+              <span class="chip-val" id="cc-hz-val">120 Hz</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Notification Center Slide-Out Panel -->
+    <aside id="notification-center" class="hidden">
+      <div class="notif-header">
+        <div class="notif-title-row">
+          <span class="notif-icon">🔔</span>
+          <span class="notif-title">Notifications</span>
+          <span class="notif-count-badge" id="notif-count-badge">3 New</span>
+        </div>
+        <button class="notif-clear-btn" id="notif-clear-btn">Clear All</button>
+      </div>
+      <div class="notif-list" id="notif-list">
+        <div class="notif-card unread">
+          <div class="notif-card-header">
+            <span class="notif-card-app">⚡ Poly Engine</span>
+            <span class="notif-time">Just now</span>
+          </div>
+          <div class="notif-card-body">
+            <strong>120Hz ProMotion Active</strong>
+            <p>Compositor running 120 FPS with hardware acceleration.</p>
+          </div>
+        </div>
+        <div class="notif-card unread">
+          <div class="notif-card-header">
+            <span class="notif-card-app">🛍️ App Store</span>
+            <span class="notif-time">5m ago</span>
+          </div>
+          <div class="notif-card-body">
+            <strong>Applications Ready</strong>
+            <p>All built-in system tools and sandboxes verified.</p>
+          </div>
+        </div>
+        <div class="notif-card unread">
+          <div class="notif-card-header">
+            <span class="notif-card-app">🎵 Poly Audio</span>
+            <span class="notif-time">12m ago</span>
+          </div>
+          <div class="notif-card-body">
+            <strong>AirPods Pro Connected</strong>
+            <p>Spatial audio and low-latency buffer configured.</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Adaptive Dock / Taskbar Container (Supports Bottom, Left, Right & Floating vs Full Taskbar) -->
+    <div id="dock-container" class="pos-bottom align-center">
+      <nav id="dock" class="dock-base mode-floating">
+        <!-- 1. Left / Start Section -->
+        <div class="dock-section dock-left">
+          <button class="dock-item" id="start-btn" title="Poly Start & App Library">
+            <div class="dock-icon start-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="6" cy="6" r="3"/>
+                <circle cx="18" cy="6" r="3"/>
+                <circle cx="6" cy="18" r="3"/>
+                <circle cx="18" cy="18" r="3"/>
+              </svg>
+            </div>
+            <span class="dock-item-tooltip">Start</span>
+          </button>
+        </div>
+
+        <div class="dock-divider"></div>
+
+        <!-- 2. Middle Unified App & Window Row -->
+        <div class="dock-middle-scroll" id="dock-middle-scroll">
+          <!-- Pinned App Icons -->
+          <div class="dock-section dock-center" id="dock-pinned-apps">
+            <button class="dock-item" data-app="files" title="Files & Workspace">
+              <div class="dock-icon files-icon">📁</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Files</span>
+            </button>
+
+            <button class="dock-item" data-app="browser" title="Poly Browser">
+              <div class="dock-icon browser-icon">🌐</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Browser</span>
+            </button>
+
+            <button class="dock-item" data-app="terminal" title="Terminal & Systems">
+              <div class="dock-icon terminal-icon">⌨️</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Terminal</span>
+            </button>
+
+            <button class="dock-item" data-app="code" title="Poly Code Studio">
+              <div class="dock-icon code-icon">💻</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Code Studio</span>
+            </button>
+
+            <button class="dock-item" data-app="notes" title="Notes & Scratchpad">
+              <div class="dock-icon notes-icon">📝</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Notes</span>
+            </button>
+
+            <button class="dock-item" data-app="music" title="Poly Music">
+              <div class="dock-icon music-icon">🎵</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Music</span>
+            </button>
+
+            <button class="dock-item" data-app="telemetry" title="Process Monitor (polyd)">
+              <div class="dock-icon telemetry-icon">⚡</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Process Monitor</span>
+            </button>
+
+            <button class="dock-item" data-app="store" title="Poly App Store">
+              <div class="dock-icon store-icon">🛍️</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">App Store</span>
+            </button>
+
+            <button class="dock-item" data-app="settings" title="System Settings">
+              <div class="dock-icon settings-icon">⚙️</div>
+              <span class="dot-indicator"></span>
+              <span class="dock-item-tooltip">Settings</span>
+            </button>
+          </div>
+
+          <!-- Dynamic Unpinned Windows Strip -->
+          <div class="dock-divider" id="dock-windows-divider" style="display: none;"></div>
+          <div class="dock-section dock-windows-strip" id="dock-windows-strip"></div>
+        </div>
+
+        <div class="dock-divider"></div>
+
+        <!-- 4. System & Dock Tray (Permanently pinned and visible) -->
+        <div class="dock-section dock-tray">
+          <!-- Quick Mode Switcher (Floating Pill <-> Windows Taskbar) -->
+          <button class="dock-item dock-control-btn" id="dock-mode-toggle" title="Toggle Floating Pill (iOS) / Taskbar (Windows)">
+            <div class="dock-icon">
+              <span id="dock-mode-icon">↔️</span>
+            </div>
+            <span class="dock-item-tooltip" id="dock-mode-tooltip">Taskbar Mode</span>
+          </button>
+
+          <!-- Quick Position Switcher (Bottom -> Left -> Right) -->
+          <button class="dock-item dock-control-btn" id="dock-pos-toggle" title="Cycle Dock Position (Bottom / Left / Right)">
+            <div class="dock-icon">
+              <span id="dock-pos-icon">📍</span>
+            </div>
+            <span class="dock-item-tooltip" id="dock-pos-tooltip">Change Position</span>
+          </button>
+
+          <!-- Dock Settings Menu Trigger -->
+          <button class="dock-item dock-control-btn" id="dock-settings-btn" title="Dock & Taskbar Preferences">
+            <div class="dock-icon">⚙️</div>
+            <span class="dock-item-tooltip">Preferences</span>
+          </button>
+        </div>
+      </nav>
+    </div>
+
+    <!-- Dock Preferences Flyout Popup -->
+    <div id="dock-settings-popup" class="hidden">
+      <div class="popup-header">
+        <span class="popup-title">Dock & Taskbar Preferences</span>
+        <button id="close-dock-settings" class="popup-close-btn">&times;</button>
+      </div>
+
+      <div class="pref-group">
+        <label>Display Style</label>
+        <div class="segmented-control" id="pref-style">
+          <button class="seg-btn active" data-style="floating">📱 Floating Pill (iOS)</button>
+          <button class="seg-btn" data-style="taskbar">🪟 Full Taskbar (Windows)</button>
+        </div>
+      </div>
+
+      <div class="pref-group">
+        <label>Screen Position</label>
+        <div class="segmented-control" id="pref-pos">
+          <button class="seg-btn active" data-pos="bottom">⬇️ Bottom</button>
+          <button class="seg-btn" data-pos="left">⬅️ Left Side</button>
+          <button class="seg-btn" data-pos="right">➡️ Right Side</button>
+        </div>
+      </div>
+
+      <div class="pref-group">
+        <label>Icon Alignment</label>
+        <div class="segmented-control" id="pref-align">
+          <button class="seg-btn active" data-align="center">⏺️ Centered (iOS/Win11)</button>
+          <button class="seg-btn" data-align="start">◀️ Left / Top (Win10)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Windows-Style Start Menu / App Launcher -->
+    <div id="start-menu" class="hidden">
+      <div class="start-search">
+        <input type="text" placeholder="Search apps, files, settings (Cmd + Space)..." id="start-search-input">
+      </div>
+      <div class="start-content">
+        <div class="section-title">Pinned Apps</div>
+        <div class="pinned-grid">
+          <div class="grid-app" data-launch="files"><span>📁</span><label>Files</label></div>
+          <div class="grid-app" data-launch="browser"><span>🌐</span><label>Browser</label></div>
+          <div class="grid-app" data-launch="terminal"><span>⌨️</span><label>Terminal</label></div>
+          <div class="grid-app" data-launch="code"><span>💻</span><label>Code Studio</label></div>
+          <div class="grid-app" data-launch="notes"><span>📝</span><label>Notes</label></div>
+          <div class="grid-app" data-launch="music"><span>🎵</span><label>Music</label></div>
+          <div class="grid-app" data-launch="telemetry"><span>⚡</span><label>Process Manager</label></div>
+          <div class="grid-app" data-launch="store"><span>🛍️</span><label>App Store</label></div>
+          <div class="grid-app" data-launch="settings"><span>⚙️</span><label>Settings</label></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="shell.js?v=2.6"></script>
+</body>
+</html>

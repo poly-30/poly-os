@@ -1,0 +1,18 @@
+[package]
+name = "poly-compositor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Poly OS Architecture Team"]
+description = "Lightweight, fluid Wayland compositor featuring iOS spring physics and Windows multi-window snapping"
+
+[dependencies]
+# Wayland and rendering foundation
+smithay = { version = "0.3", default-features = false, features = ["backend_winit", "backend_drm", "renderer_gl", "wayland_frontend", "desktop"] }
+wayland-server = "0.31"
+
+# Utility and math
+glam = "0.24"
+log = "0.4"
+env_logger = "0.10"
+calloop = "0.12"
+thiserror = "1.0"

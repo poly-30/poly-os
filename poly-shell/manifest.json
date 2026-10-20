@@ -1,0 +1,42 @@
+{
+  "name": "Poly OS — Interactive Hybrid Experience",
+  "short_name": "Poly OS",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d0e15",
+  "theme_color": "#0a84ff",
+  "description": "Next-generation hybrid operating system marrying iOS fluid spring physics with Windows multi-window productivity.",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><polygon points='96,16 176,68 176,124 96,176 16,124 16,68' fill='%230a84ff'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><polygon points='256,40 470,170 470,342 256,472 42,342 42,170' fill='%230a84ff'/></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities", "operating systems"],
+  "shortcuts": [
+    {
+      "name": "Terminal & Shell",
+      "url": "./index.html?launch=terminal",
+      "description": "Open Virtual UNIX Terminal"
+    },
+    {
+      "name": "Files & Workspace",
+      "url": "./index.html?launch=files",
+      "description": "Open Virtual Files Explorer"
+    },
+    {
+      "name": "Code Studio",
+      "url": "./index.html?launch=code",
+      "description": "Open Poly Code Studio IDE"
+    }
+  ]
+}
