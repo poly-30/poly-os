@@ -1,18 +1,52 @@
 [package]
 name = "poly-compositor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Poly OS Architecture Team"]
-description = "Lightweight, fluid Wayland compositor featuring iOS spring physics and Windows multi-window snapping"
+description = "Hardware-accelerated Wayland compositor with DRM/KMS, Vulkan/GLES rendering, frosted-glass borders, and iOS spring physics"
 
 [dependencies]
-# Wayland and rendering foundation
-smithay = { version = "0.3", default-features = false, features = ["backend_winit", "backend_drm", "renderer_gl", "wayland_frontend", "desktop"] }
-wayland-server = "0.31"
+# ── Wayland compositor framework ─────────────────────────────────────────────
+# Smithay provides the DRM/KMS backend, EGL/GLES renderer, Wayland protocol
+# handling, and the high-level Desktop abstraction for window management.
+smithay = { version = "0.3", default-features = false, features = [
+    "backend_drm",         # DRM/KMS scanout — no X11 dependency
+    "backend_egl",         # EGL context for GPU-accelerated GLES rendering
+    "backend_udev",        # Hot-plug monitor detection on real hardware
+    "backend_session_libseat", # Rootless session management via libseat
+    "backend_winit",       # Winit fallback for development/testing on X11/Wayland
+    "renderer_gl",         # OpenGL ES 3.x renderer (drives GLSL frosted-glass shader)
+    "wayland_frontend",    # Wayland client protocol handling (wl_surface, etc.)
+    "desktop",             # High-level window stacking, focus, and space helpers
+    "xwayland",            # X11 compatibility layer for legacy apps
+] }
 
-# Utility and math
+wayland-server = "0.31"
+wayland-protocols = { version = "0.31", features = ["server"] }
+
+# ── Event loop ───────────────────────────────────────────────────────────────
+# Smithay uses calloop as its core event loop; we schedule the 120Hz VSync
+# timer, DRM page-flip events, and Wayland client dispatch on it.
+calloop = "0.12"
+
+# ── Rendering & shader support ───────────────────────────────────────────────
+# glow provides a safe Rust wrapper around the raw OpenGL / GLES calls we need
+# for the frosted-glass fragment shader (Gaussian blur + tinted alpha composite).
+glow = "0.13"
+
+# ── Math ─────────────────────────────────────────────────────────────────────
 glam = "0.24"
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 log = "0.4"
 env_logger = "0.10"
-calloop = "0.12"
+
+# ── Error handling ───────────────────────────────────────────────────────────
 thiserror = "1.0"
+anyhow = "1.0"
+
+# ── System / misc ────────────────────────────────────────────────────────────
+libc = "0.2"
+nix = { version = "0.27", features = ["fs", "term", "ioctl"] }

@@ -1,0 +1,93 @@
+name: "🐛 Bug Report"
+description: "Report a bug or unexpected behavior in Poly OS."
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue in **Poly OS**!
+        Please fill out this form as completely as possible so we can reproduce and resolve it quickly.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: "Prerequisites"
+      description: "Please check that you have verified the following before submitting:"
+      options:
+        - label: "I have searched existing issues to ensure this is not a duplicate."
+          required: true
+        - label: "I am testing against the latest commit or release on the `main` branch."
+          required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Affected Component"
+      description: "Select the subsystem where the bug occurs:"
+      options:
+        - "poly-shell (Web Shell UI, Window Physics, Aero Snap, Dock)"
+        - "poly-compositor (Rust Wayland display server, Smithay)"
+        - "poly-daemon (Python cgroups v2 background freezer, polyd)"
+        - "iso-build (Alpine bootable image mastering script)"
+        - "Other / Tooling (preview.py, scripts, documentation)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Bug Description"
+      description: "A clear and concise description of what the bug is."
+      placeholder: "When snapping a window to the right edge with Aero Snap..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Exact step-by-step instructions to reproduce the issue:"
+      placeholder: |
+        1. Run `python preview.py` and open `http://localhost:5173/index.html`.
+        2. Launch Poly Code Studio from the dock.
+        3. Drag the window header to the right edge of the screen.
+        4. Observe unexpected layout behavior...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected Behavior"
+      description: "What did you expect to happen instead?"
+      placeholder: "The window should snap smoothly to fill 50% width with a 6px inner gap..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "Screenshots or Video"
+      description: "Drag and drop screenshots, screen recordings, or GIFs if applicable."
+      placeholder: "Attach images or paste links here."
+
+  - type: dropdown
+    id: display_refresh
+    attributes:
+      label: "Display Refresh Rate"
+      description: "Display refresh rate used during testing (relevant for spring physics integration):"
+      options:
+        - "120Hz (ProMotion / High Refresh Display)"
+        - "60Hz (Standard)"
+        - "144Hz / 240Hz (Gaming Monitor)"
+        - "Variable / VRR"
+
+  - type: input
+    id: environment
+    attributes:
+      label: "System & Environment"
+      description: "Operating system, browser (or Wayland session), and Python/Rust versions:"
+      placeholder: "e.g., Windows 11 / Chrome 124 / Python 3.12, or Arch Linux / Wayland"
+    validations:
+      required: true

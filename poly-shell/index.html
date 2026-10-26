@@ -18,7 +18,7 @@
       caches.keys().then(names => names.forEach(n => caches.delete(n)));
     }
   </script>
-  <link rel="stylesheet" href="style.css?v=2.6">
+  <link rel="stylesheet" href="style.css?v=3.8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 </head>
@@ -356,7 +356,10 @@
             <div class="widget-bar">
               <div class="widget-bar-fill fill-blue" id="widget-ram-fill" style="width: 21%;"></div>
             </div>
-            <span class="metric-sub" id="widget-ram-sub">1024 MB ZRAM Pool</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+              <span class="metric-sub" id="widget-ram-sub">1024 MB ZRAM Pool</span>
+              <span class="widget-zram-pill" id="widget-zram-pill" title="Click to toggle ZRAM compression backend (LZ4 / ZSTD)">⚡ LZ4 3.2x</span>
+            </div>
           </div>
 
           <!-- 3. Refresh Rate -->
@@ -467,23 +470,24 @@
 
     <!-- Desktop Files Grid (Direct interactive files with drag-and-drop & Quick Look) -->
     <div id="desktop-files">
-      <div class="desktop-file" data-file="Poly_Whitepaper.pdf" data-type="pdf" data-size="4.2 MB" draggable="true" title="Double click for Quick Look or drag into Files">
+      <div id="desktop-grid-ghost" class="hidden"></div>
+      <div class="desktop-file" data-file="Poly_Whitepaper.pdf" data-type="pdf" data-size="4.2 MB" title="Double click for Quick Look or drag into Files">
         <div class="desktop-file-icon">📄</div>
         <span class="desktop-file-name">Poly_Whitepaper.pdf</span>
       </div>
-      <div class="desktop-file" data-file="Project-Poly" data-type="folder" data-size="12 items" draggable="true" title="Double click to open folder or drag into Files">
+      <div class="desktop-file" data-file="Project-Poly" data-type="folder" data-size="12 items" title="Double click to open folder or drag into Files">
         <div class="desktop-file-icon">📁</div>
         <span class="desktop-file-name">Project-Poly</span>
       </div>
-      <div class="desktop-file" data-file="120Hz_Demo.mp4" data-type="video" data-size="18.5 MB" draggable="true" title="Double click for Quick Look or drag into Files">
+      <div class="desktop-file" data-file="120Hz_Demo.mp4" data-type="video" data-size="18.5 MB" title="Double click for Quick Look or drag into Files">
         <div class="desktop-file-icon">🎬</div>
         <span class="desktop-file-name">120Hz_Demo.mp4</span>
       </div>
-      <div class="desktop-file" data-file="Cupertino_5K.heic" data-type="image" data-size="8.1 MB" draggable="true" title="Double click for Quick Look or drag into Files">
+      <div class="desktop-file" data-file="Cupertino_5K.heic" data-type="image" data-size="8.1 MB" title="Double click for Quick Look or drag into Files">
         <div class="desktop-file-icon">🖼️</div>
         <span class="desktop-file-name">Cupertino_5K.heic</span>
       </div>
-      <div class="desktop-file" data-file="daemon.rs" data-type="code" data-size="24 KB" draggable="true" title="Double click for Quick Look or drag into Files">
+      <div class="desktop-file" data-file="daemon.rs" data-type="code" data-size="24 KB" title="Double click for Quick Look or drag into Files">
         <div class="desktop-file-icon">🦀</div>
         <span class="desktop-file-name">daemon.rs</span>
       </div>
@@ -814,14 +818,6 @@
             <span class="dock-item-tooltip" id="dock-mode-tooltip">Taskbar Mode</span>
           </button>
 
-          <!-- Quick Position Switcher (Bottom -> Left -> Right) -->
-          <button class="dock-item dock-control-btn" id="dock-pos-toggle" title="Cycle Dock Position (Bottom / Left / Right)">
-            <div class="dock-icon">
-              <span id="dock-pos-icon">📍</span>
-            </div>
-            <span class="dock-item-tooltip" id="dock-pos-tooltip">Change Position</span>
-          </button>
-
           <!-- Dock Settings Menu Trigger -->
           <button class="dock-item dock-control-btn" id="dock-settings-btn" title="Dock & Taskbar Preferences">
             <div class="dock-icon">⚙️</div>
@@ -843,15 +839,6 @@
         <div class="segmented-control" id="pref-style">
           <button class="seg-btn active" data-style="floating">📱 Floating Pill (iOS)</button>
           <button class="seg-btn" data-style="taskbar">🪟 Full Taskbar (Windows)</button>
-        </div>
-      </div>
-
-      <div class="pref-group">
-        <label>Screen Position</label>
-        <div class="segmented-control" id="pref-pos">
-          <button class="seg-btn active" data-pos="bottom">⬇️ Bottom</button>
-          <button class="seg-btn" data-pos="left">⬅️ Left Side</button>
-          <button class="seg-btn" data-pos="right">➡️ Right Side</button>
         </div>
       </div>
 
@@ -886,6 +873,6 @@
     </div>
   </div>
 
-  <script src="shell.js?v=2.6"></script>
+  <script src="shell.js?v=3.8"></script>
 </body>
 </html>

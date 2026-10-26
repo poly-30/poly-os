@@ -1,0 +1,65 @@
+# ==============================================================================
+# polyd - Poly OS Process Lifecycle & Background Freezer Daemon Configuration
+# Default search locations:
+#   1. --config <path> CLI argument
+#   2. ~/.config/polyd.toml or ~/.config/poly/polyd.toml
+#   3. Local ./polyd.toml
+#   4. /etc/polyd.toml or /etc/polyd.conf
+# ==============================================================================
+
+[daemon]
+# Poll interval in seconds for background process evaluation
+poll_interval_seconds = 1.0
+
+# Inactivity grace period in seconds before an unfocused window is frozen
+freeze_timeout_seconds = 15.0
+
+# Linux cgroups v2 mount root
+cgroup_root = "/sys/fs/cgroup/poly"
+
+# Run in simulation mode (automatically set to true if cgroups v2 root is unavailable)
+dry_run = false
+
+# Logging verbosity: DEBUG, INFO, WARNING, ERROR
+log_level = "INFO"
+
+[freezer]
+# Enable automated cgroup freezing for inactive processes
+enabled = true
+
+# CPU share weight for focused/active processes (1-10000, 100 is normal)
+active_cpu_weight = 100
+
+# CPU share weight for inactive/unfocused processes before freeze (1-10000, 10 is low)
+inactive_cpu_weight = 10
+
+# Compress frozen process anonymous memory into ZRAM swap
+zram_compression = true
+
+# ZRAM compression algorithm: "lz4" (lowest latency, ~3.2x) or "zstd" (highest compaction, ~4.3x)
+compression_algorithm = "lz4"
+
+# Linux sysfs ZRAM block device path
+zram_device = "/sys/block/zram0"
+
+# Maximum memory threshold in MB per app cgroup (0 = unlimited)
+max_memory_mb = 0
+
+[whitelist]
+# Applications and titles that are exempt from background suspension.
+# Matches against either app_id (exact or prefix) or window title (case-insensitive substring).
+apps = [
+    "poly.music",
+    "poly.terminal",
+    "poly.telemetry",
+    "Music",
+    "Audio",
+    "Process Manager"
+]
+
+# Keep-alive lease capabilities granted automatically without suspension
+default_leases = [
+    "AudioPlayback",
+    "FileTransfer",
+    "Compilation"
+]

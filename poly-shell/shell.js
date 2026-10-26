@@ -557,7 +557,7 @@ class PolyOS {
     this.activeWindowId = null;
     this.activeSnapZone = null;
     this.dockMode = 'floating'; // 'floating' (iOS) or 'taskbar' (Windows)
-    this.dockPos = 'bottom';    // 'bottom', 'left', 'right'
+    this.dockPos = 'bottom';
     this.dockAlign = 'center';  // 'center', 'start'
     this.nextWindowId = 1;
     this.isExposeActive = false;
@@ -571,6 +571,17 @@ class PolyOS {
       refreshRate: 120,
       temperature: 41,
       thermalState: 'Optimal'
+    };
+    this.zram = {
+      algorithm: localStorage.getItem('poly_zram_algo') || 'lz4',
+      ratio: 3.24,
+      ratioStr: '3.24x',
+      origMb: 112.0,
+      comprMb: 34.6,
+      savingsMb: 77.4,
+      savingsPercent: 69.1,
+      isReal: false,
+      device: '/sys/block/zram0'
     };
     this.installedApps = new Set(['files', 'browser', 'terminal', 'notes', 'music', 'telemetry', 'settings', 'store']);
     this.activeWallpaper = 'cupertino';
@@ -596,6 +607,7 @@ class PolyOS {
     this.initFancyZones();
     this.initLiveWallpaper();
     this.initDesktopWidgets();
+    this.initGestureRecognizer();
     this.initPWA();
     this.startRenderLoop();
     this.startProcessLifecycleDaemon();
@@ -689,7 +701,24 @@ class PolyOS {
     const grid = document.getElementById('snap-assist-grid');
     if (!overlay || !grid) return;
 
-    const others = Array.from(this.windows.values()).filter(w => w.id !== snappedWinId && !w.isMinimized && w.workspace === this.currentWorkspace);
+    // If the targetZone already has an active snapped window, do not show Snap Assist
+    const oppositeOccupied = Array.from(this.windows.values()).some(w => 
+      w.id !== snappedWinId && 
+      !w.isMinimized && 
+      w.workspace === this.currentWorkspace && 
+      w.snapZone === targetZone
+    );
+    if (oppositeOccupied) {
+      this.closeSnapAssist();
+      return;
+    }
+
+    const others = Array.from(this.windows.values()).filter(w => 
+      w.id !== snappedWinId && 
+      !w.isMinimized && 
+      w.workspace === this.currentWorkspace &&
+      w.snapZone !== targetZone
+    );
     if (others.length === 0) {
       this.closeSnapAssist();
       return;
@@ -698,7 +727,7 @@ class PolyOS {
     const b = this.getWorkspaceBounds();
     const colW = (b.availW - b.innerGap) / 2;
 
-    overlay.style.top = `${b.availY}px`;
+    overlay.style.top = `${b.screenAvailY}px`;
     overlay.style.height = `${b.availH}px`;
     overlay.style.bottom = 'auto';
 
@@ -722,9 +751,9 @@ class PolyOS {
     grid.querySelectorAll('.snap-assist-card').forEach(card => {
       card.addEventListener('click', () => {
         const id = parseInt(card.dataset.id);
-        this.applySnap(id, targetZone);
-        this.focusWindow(id);
         this.closeSnapAssist();
+        this.applySnap(id, targetZone, false);
+        this.focusWindow(id);
       });
     });
 
@@ -885,12 +914,14 @@ class PolyOS {
     const container = document.getElementById('fancyzones-slots-container');
     if (!overlay || !container) return;
 
+    const b = this.getWorkspaceBounds();
     const rects = this.getFancyZonesRects();
     overlay.classList.remove('hidden');
 
     let activeIdx = null;
     rects.forEach((r, idx) => {
-      if (mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h) {
+      const slotY = r.y + b.topBarH;
+      if (mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= slotY && mouseY <= slotY + r.h) {
         activeIdx = idx;
       }
     });
@@ -898,7 +929,7 @@ class PolyOS {
     this.activeFancyZoneIndex = activeIdx;
 
     container.innerHTML = rects.map((r, idx) => `
-      <div class="fancyzone-slot ${idx === activeIdx ? 'active' : ''}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px;">
+      <div class="fancyzone-slot ${idx === activeIdx ? 'active' : ''}" style="left:${r.x}px; top:${r.y + b.topBarH}px; width:${r.w}px; height:${r.h}px;">
         <span>Zone ${idx + 1}</span>
       </div>
     `).join('');
@@ -952,9 +983,20 @@ class PolyOS {
     polyAudio.playSnap();
     this.notifyIsland(`📐 FancyZones: Snapped ${win.title} into Zone ${zoneIndex + 1} (${layout.toUpperCase()})`);
 
-    // Trigger Snap Assist for adjacent zones
+    // Trigger Snap Assist for adjacent zones only if opposite is unoccupied
     if (layout === 'split') {
-      setTimeout(() => this.triggerSnapAssist(zoneIndex === 0 ? 'right-half' : 'left-half', win.id), 120);
+      const targetZone = zoneIndex === 0 ? 'right-half' : 'left-half';
+      const oppositeOccupied = Array.from(this.windows.values()).some(w => 
+        w.id !== win.id && 
+        !w.isMinimized && 
+        w.workspace === this.currentWorkspace && 
+        w.snapZone === targetZone
+      );
+      if (!oppositeOccupied) {
+        setTimeout(() => this.triggerSnapAssist(targetZone, win.id), 120);
+      } else {
+        this.closeSnapAssist();
+      }
     }
   }
 
@@ -1334,6 +1376,193 @@ class PolyOS {
         polyAudio.playClick();
       });
     }
+  }
+
+  initGestureRecognizer() {
+    let touchState = {
+      active: false,
+      count: 0,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      startTime: 0,
+      initialDistance: 0,
+      currentDistance: 0,
+      gestureTriggered: false,
+      onDesktop: false
+    };
+
+    const getTouchDistance = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    const getCenter = (t1, t2) => ({
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2
+    });
+
+    // 1. Multi-Touch Screen Listeners (iOS, Android, Surface, Touch Laptops)
+    window.addEventListener('touchstart', (e) => {
+      touchState.count = e.touches.length;
+      touchState.gestureTriggered = false;
+      touchState.startTime = Date.now();
+      touchState.onDesktop = !e.target.closest('.window, #dock-container, #top-bar, #spotlight-modal');
+
+      if (e.touches.length === 3) {
+        // 3-Finger gesture setup (App Exposé / 3-finger swipe)
+        touchState.active = true;
+        touchState.startX = (e.touches[0].clientX + e.touches[1].clientX + e.touches[2].clientX) / 3;
+        touchState.startY = (e.touches[0].clientY + e.touches[1].clientY + e.touches[2].clientY) / 3;
+        touchState.currentX = touchState.startX;
+        touchState.currentY = touchState.startY;
+      } else if (e.touches.length === 2 && touchState.onDesktop) {
+        // 2-Finger desktop gesture setup (Pinch widgets / 2-finger horizontal workspace switch)
+        touchState.active = true;
+        touchState.initialDistance = getTouchDistance(e.touches[0], e.touches[1]);
+        touchState.currentDistance = touchState.initialDistance;
+        const center = getCenter(e.touches[0], e.touches[1]);
+        touchState.startX = center.x;
+        touchState.startY = center.y;
+        touchState.currentX = center.x;
+        touchState.currentY = center.y;
+      } else {
+        touchState.active = false;
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!touchState.active || touchState.gestureTriggered) return;
+
+      if (e.touches.length === 3) {
+        // Track 3-Finger movements
+        const curX = (e.touches[0].clientX + e.touches[1].clientX + e.touches[2].clientX) / 3;
+        const curY = (e.touches[0].clientY + e.touches[1].clientY + e.touches[2].clientY) / 3;
+        const deltaX = curX - touchState.startX;
+        const deltaY = curY - touchState.startY;
+
+        // 3-Finger Swipe Up: Open App Exposé
+        if (deltaY < -60 && Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
+          touchState.gestureTriggered = true;
+          if (!this.isExposeActive) {
+            this.toggleExpose();
+            polyAudio.playSnap();
+            this.notifyIsland('🎴 3-Finger Swipe: App Exposé');
+          }
+        }
+        // 3-Finger Swipe Down: Close Exposé or Show Desktop
+        else if (deltaY > 60 && Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
+          touchState.gestureTriggered = true;
+          if (this.isExposeActive) {
+            this.toggleExpose();
+            polyAudio.playSnap();
+            this.notifyIsland('🎴 Exposé Closed');
+          } else {
+            if (this.activeWindowId) {
+              this.minimizeWindow(this.activeWindowId);
+              this.notifyIsland('🖥️ 3-Finger Swipe: Desktop Revealed');
+            }
+          }
+        }
+        // 3-Finger Swipe Left: Switch to Desktop 2
+        else if (deltaX < -70 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+          touchState.gestureTriggered = true;
+          this.switchWorkspace(2);
+          this.notifyIsland('🖥️ Swipe: Desktop 2');
+        }
+        // 3-Finger Swipe Right: Switch to Desktop 1
+        else if (deltaX > 70 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+          touchState.gestureTriggered = true;
+          this.switchWorkspace(1);
+          this.notifyIsland('🖥️ Swipe: Desktop 1');
+        }
+      } else if (e.touches.length === 2 && touchState.onDesktop) {
+        // Track 2-Finger desktop gestures: Pinch vs Horizontal Workspace Swipe
+        const curDist = getTouchDistance(e.touches[0], e.touches[1]);
+        const center = getCenter(e.touches[0], e.touches[1]);
+        const deltaX = center.x - touchState.startX;
+        const distRatio = curDist / (touchState.initialDistance || 1);
+
+        // 2-Finger Pinch In (Zoom Out): Hide desktop widgets
+        if (distRatio < 0.72 && Math.abs(distRatio - 1) > 0.25) {
+          touchState.gestureTriggered = true;
+          document.body.classList.add('desktop-widgets-hidden');
+          polyAudio.playClick();
+          this.notifyIsland('🧩 Pinch In: Desktop Widgets Hidden');
+        }
+        // 2-Finger Pinch Out (Spread): Show desktop widgets
+        else if (distRatio > 1.35 && Math.abs(distRatio - 1) > 0.3) {
+          touchState.gestureTriggered = true;
+          document.body.classList.remove('desktop-widgets-hidden');
+          polyAudio.playSuccess();
+          this.notifyIsland('🧩 Pinch Out: Desktop Widgets Shown');
+        }
+        // 2-Finger Horizontal Swipe across desktop: Switch Workspaces
+        else if (Math.abs(deltaX) > 80 && Math.abs(distRatio - 1) < 0.2) {
+          touchState.gestureTriggered = true;
+          if (deltaX < 0) {
+            this.switchWorkspace(2);
+          } else {
+            this.switchWorkspace(1);
+          }
+        }
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => {
+      touchState.active = false;
+      touchState.gestureTriggered = false;
+    });
+
+    window.addEventListener('touchcancel', () => {
+      touchState.active = false;
+      touchState.gestureTriggered = false;
+    });
+
+    // 2. Trackpad Pinch & Horizontal Scroll Gestures (Mac / Windows Precision Trackpad)
+    let trackpadWheelAccumX = 0;
+    let trackpadResetTimeout = null;
+
+    window.addEventListener('wheel', (e) => {
+      // A. Trackpad Pinch Gesture (Ctrl + Wheel) on desktop background
+      if (e.ctrlKey) {
+        const isOverDesktop = !e.target.closest('.window, #dock-container, #top-bar, #spotlight-modal');
+        if (isOverDesktop) {
+          e.preventDefault();
+          clearTimeout(trackpadResetTimeout);
+          trackpadResetTimeout = setTimeout(() => {
+            if (e.deltaY > 0) {
+              // Pinch In (Zoom out): Hide widgets
+              document.body.classList.add('desktop-widgets-hidden');
+              polyAudio.playClick();
+              this.notifyIsland('🧩 Trackpad Pinch In: Widgets Hidden');
+            } else if (e.deltaY < 0) {
+              // Pinch Out (Zoom in): Show widgets
+              document.body.classList.remove('desktop-widgets-hidden');
+              polyAudio.playSuccess();
+              this.notifyIsland('🧩 Trackpad Pinch Out: Widgets Shown');
+            }
+          }, 40);
+          return;
+        }
+      }
+
+      // B. Two-Finger Horizontal Trackpad Swipe on Desktop Background to Switch Workspaces
+      const isOverDesktop = !e.target.closest('.window, #dock-container, #top-bar, .code-workspace, .notes-workspace, pre');
+      if (isOverDesktop && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.5 && Math.abs(e.deltaX) > 15) {
+        trackpadWheelAccumX += e.deltaX;
+        clearTimeout(trackpadResetTimeout);
+
+        if (trackpadWheelAccumX > 160) {
+          trackpadWheelAccumX = 0;
+          this.switchWorkspace(2);
+        } else if (trackpadWheelAccumX < -160) {
+          trackpadWheelAccumX = 0;
+          this.switchWorkspace(1);
+        }
+
+        trackpadResetTimeout = setTimeout(() => {
+          trackpadWheelAccumX = 0;
+        }, 220);
+      }
+    }, { passive: false });
   }
 
   initPWA() {
@@ -1857,45 +2086,82 @@ class PolyOS {
       }
     });
 
-    // Windows-Style Magnetic Aero Snap Keyboard Shortcuts (Win + Arrows or Alt + Arrows)
+    // Windows-Style Magnetic Aero Snap Keyboard Shortcuts (Win + Arrows, Alt + Arrows, or Ctrl + Alt/Shift + Arrows)
     window.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.altKey) && !e.ctrlKey) {
-        if (!this.activeWindowId) return;
-        const win = this.windows.get(this.activeWindowId);
-        if (!win || win.isMinimized) return;
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
 
-        if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          if (e.shiftKey) {
-            this.applySnap(win.id, 'top-left');
-          } else {
-            this.applySnap(win.id, 'left-half');
-          }
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          if (e.shiftKey) {
-            this.applySnap(win.id, 'top-right');
-          } else {
-            this.applySnap(win.id, 'right-half');
-          }
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
+      const isInput = e.target && (e.target.matches('input, textarea') || e.target.isContentEditable);
+      
+      // Supported Modifiers:
+      // 1. Meta (Win key / Mac Cmd)
+      // 2. Alt (Option on Mac)
+      // 3. Ctrl + Alt or Ctrl + Shift
+      // 4. Bare Ctrl (only when not inside a text editing field)
+      const isSnapModifier = e.metaKey || e.altKey || (e.ctrlKey && e.shiftKey) || (!isInput && e.ctrlKey);
+      if (!isSnapModifier) return;
+
+      if (!this.activeWindowId) return;
+      const win = this.windows.get(this.activeWindowId);
+      if (!win || win.isMinimized) return;
+
+      const zone = win.snapZone;
+      const isMax = win.isMaximized;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          this.applySnap(win.id, 'top-left');
+        } else if (isMax) {
+          this.applySnap(win.id, 'left-half');
+        } else if (zone === 'right-half') {
+          this.restoreMaximize(win.id);
+        } else if (zone === 'top-right') {
+          this.applySnap(win.id, 'top-left');
+        } else if (zone === 'bottom-right') {
+          this.applySnap(win.id, 'bottom-left');
+        } else {
+          this.applySnap(win.id, 'left-half');
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          this.applySnap(win.id, 'top-right');
+        } else if (isMax) {
+          this.applySnap(win.id, 'right-half');
+        } else if (zone === 'left-half') {
+          this.restoreMaximize(win.id);
+        } else if (zone === 'top-left') {
+          this.applySnap(win.id, 'top-right');
+        } else if (zone === 'bottom-left') {
+          this.applySnap(win.id, 'bottom-right');
+        } else {
+          this.applySnap(win.id, 'right-half');
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (zone === 'left-half') {
+          this.applySnap(win.id, 'top-left');
+        } else if (zone === 'right-half') {
+          this.applySnap(win.id, 'top-right');
+        } else if (zone === 'bottom-left') {
+          this.applySnap(win.id, 'left-half');
+        } else if (zone === 'bottom-right') {
+          this.applySnap(win.id, 'right-half');
+        } else {
           this.applySnap(win.id, 'maximize');
-        } else if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          if (win.isMaximized) {
-            this.restoreMaximize(win.id);
-          } else if (win.snapZone) {
-            win.snapZone = null;
-            win.springX.setTarget(win.restoreBounds.x);
-            win.springY.setTarget(win.restoreBounds.y);
-            win.springW.setTarget(win.restoreBounds.w);
-            win.springH.setTarget(win.restoreBounds.h);
-            polyAudio.playSpring();
-            this.notifyIsland(`🪟 Restored ${win.title}`);
-          } else {
-            this.minimizeWindow(win.id);
-          }
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (isMax) {
+          this.restoreMaximize(win.id);
+        } else if (zone === 'top-left') {
+          this.applySnap(win.id, 'bottom-left');
+        } else if (zone === 'top-right') {
+          this.applySnap(win.id, 'bottom-right');
+        } else if (zone === 'left-half' || zone === 'right-half' || zone === 'bottom-left' || zone === 'bottom-right') {
+          this.restoreMaximize(win.id);
+        } else {
+          this.minimizeWindow(win.id);
         }
       }
     });
@@ -2098,31 +2364,251 @@ class PolyOS {
   initDesktopFiles() {
     const desktopFiles = document.querySelectorAll('.desktop-file');
     const ctxMenu = document.getElementById('desktop-context-menu');
+    const ghost = document.getElementById('desktop-grid-ghost');
     let activeCtxTarget = null;
 
+    // Grid Parameters (Matches 88px icon width with clean gaps)
+    const gridOriginX = 24;
+    const gridOriginY = 56;
+    const gridCellW = 96;
+    const gridCellH = 104;
+
+    const snapToGrid = (centerX, centerY) => {
+      const maxRows = Math.max(1, Math.floor((window.innerHeight - gridOriginY - 80) / gridCellH));
+      const maxCols = Math.max(1, Math.floor((window.innerWidth - gridOriginX - 24) / gridCellW));
+
+      let col = Math.round((centerX - 44 - gridOriginX) / gridCellW);
+      let row = Math.round((centerY - 47 - gridOriginY) / gridCellH);
+
+      col = Math.max(0, Math.min(col, maxCols - 1));
+      row = Math.max(0, Math.min(row, maxRows - 1));
+
+      return {
+        x: gridOriginX + col * gridCellW,
+        y: gridOriginY + row * gridCellH,
+        col,
+        row
+      };
+    };
+
+    // Load saved positions from localStorage
+    const savedRaw = localStorage.getItem('poly_desktop_icons');
+    let savedPositions = {};
+    if (savedRaw) {
+      try {
+        savedPositions = JSON.parse(savedRaw) || {};
+      } catch (e) {}
+    }
+
+    // Default icon arrangement (vertical columns from top to bottom)
+    const positionMap = new Map();
+    let defaultRow = 0;
+    let defaultCol = 0;
+    const maxRowsPerCol = Math.max(1, Math.floor((window.innerHeight - gridOriginY - 80) / gridCellH));
+
     desktopFiles.forEach(fileEl => {
-      fileEl.addEventListener('dragstart', (e) => {
+      const fileName = fileEl.dataset.file;
+      let pos = savedPositions[fileName];
+
+      if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+        pos = {
+          x: gridOriginX + defaultCol * gridCellW,
+          y: gridOriginY + defaultRow * gridCellH,
+          col: defaultCol,
+          row: defaultRow
+        };
+        defaultRow++;
+        if (defaultRow >= maxRowsPerCol) {
+          defaultRow = 0;
+          defaultCol++;
+        }
+      }
+
+      fileEl.style.left = `${pos.x}px`;
+      fileEl.style.top = `${pos.y}px`;
+      positionMap.set(fileName, pos);
+    });
+
+    const savePositions = () => {
+      const obj = {};
+      positionMap.forEach((val, key) => { obj[key] = val; });
+      localStorage.setItem('poly_desktop_icons', JSON.stringify(obj));
+    };
+
+    // Helper: Align all icons cleanly into a grid (Clean Up)
+    const alignAllIconsToGrid = () => {
+      const maxRows = Math.max(1, Math.floor((window.innerHeight - gridOriginY - 80) / gridCellH));
+      let r = 0;
+      let c = 0;
+
+      desktopFiles.forEach(fileEl => {
         const fileName = fileEl.dataset.file;
-        fileEl.classList.add('dragging');
-        e.dataTransfer.setData('text/plain', fileName);
-        polyAudio.playClick();
+        const targetX = gridOriginX + c * gridCellW;
+        const targetY = gridOriginY + r * gridCellH;
+        const newPos = { x: targetX, y: targetY, col: c, row: r };
+
+        fileEl.style.transition = 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)';
+        fileEl.style.left = `${targetX}px`;
+        fileEl.style.top = `${targetY}px`;
+        positionMap.set(fileName, newPos);
+
+        r++;
+        if (r >= maxRows) {
+          r = 0;
+          c++;
+        }
       });
 
-      fileEl.addEventListener('dragend', () => {
-        fileEl.classList.remove('dragging');
+      savePositions();
+      polyAudio.playSuccess();
+      this.notifyIsland('🧹 Desktop icons aligned to grid');
+    };
+
+    // Helper: Get nearest unoccupied slot (Prevents icons from stacking on top of each other)
+    const getNearestFreeSlot = (targetCol, targetRow, currentFile) => {
+      const occupied = new Set();
+      positionMap.forEach((pos, key) => {
+        if (key !== currentFile) {
+          occupied.add(`${pos.col},${pos.row}`);
+        }
       });
 
-      fileEl.addEventListener('click', (e) => {
+      if (!occupied.has(`${targetCol},${targetRow}`)) {
+        return { col: targetCol, row: targetRow };
+      }
+
+      const maxR = Math.max(1, Math.floor((window.innerHeight - gridOriginY - 80) / gridCellH));
+      const maxC = Math.max(1, Math.floor((window.innerWidth - gridOriginX - 24) / gridCellW));
+
+      let bestDist = Infinity;
+      let bestSlot = { col: targetCol, row: targetRow };
+
+      for (let c = 0; c < maxC; c++) {
+        for (let r = 0; r < maxR; r++) {
+          if (!occupied.has(`${c},${r}`)) {
+            const dist = Math.hypot(c - targetCol, r - targetRow);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestSlot = { col: c, row: r };
+            }
+          }
+        }
+      }
+      return bestSlot;
+    };
+
+    // Interactive Drag-and-Drop & Snap-to-Grid for Each Icon
+    desktopFiles.forEach(fileEl => {
+      const fileName = fileEl.dataset.file;
+
+      fileEl.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; // Left click only
         e.stopPropagation();
-        desktopFiles.forEach(f => f.classList.remove('selected'));
-        fileEl.classList.add('selected');
-        polyAudio.playClick();
-        if (ctxMenu) ctxMenu.classList.add('hidden');
+
+        const rect = fileEl.getBoundingClientRect();
+        const startMouseX = e.clientX;
+        const startMouseY = e.clientY;
+        const initialLeft = parseFloat(fileEl.style.left) || rect.left;
+        const initialTop = parseFloat(fileEl.style.top) || rect.top;
+
+        let isDragging = false;
+
+        const onMouseMove = (ev) => {
+          const deltaX = ev.clientX - startMouseX;
+          const deltaY = ev.clientY - startMouseY;
+
+          if (!isDragging && Math.hypot(deltaX, deltaY) > 4) {
+            isDragging = true;
+            fileEl.classList.add('is-dragging-desktop');
+            desktopFiles.forEach(f => f.classList.remove('selected'));
+            fileEl.classList.add('selected');
+            if (ghost) ghost.classList.remove('hidden');
+            polyAudio.playClick();
+          }
+
+          if (isDragging) {
+            const newX = initialLeft + deltaX;
+            const newY = initialTop + deltaY;
+            fileEl.style.left = `${newX}px`;
+            fileEl.style.top = `${newY}px`;
+
+            // Update Snap Grid Ghost Preview
+            const snapped = snapToGrid(newX + rect.width / 2, newY + rect.height / 2);
+            if (ghost) {
+              ghost.style.left = `${snapped.x}px`;
+              ghost.style.top = `${snapped.y}px`;
+            }
+
+            // Highlight drop target if hovering over Files app
+            const underPoint = document.elementFromPoint(ev.clientX, ev.clientY);
+            const filesGrid = underPoint?.closest('#files-items-grid');
+            document.querySelectorAll('.file-drop-zone-active').forEach(el => el.classList.remove('file-drop-zone-active'));
+            if (filesGrid) {
+              filesGrid.classList.add('file-drop-zone-active');
+            }
+          }
+        };
+
+        const onMouseUp = (ev) => {
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+
+          if (isDragging) {
+            fileEl.classList.remove('is-dragging-desktop');
+            if (ghost) ghost.classList.add('hidden');
+
+            // Check if dropped onto Files app
+            const dropTarget = document.elementFromPoint(ev.clientX, ev.clientY);
+            const filesGrid = dropTarget?.closest('#files-items-grid');
+            if (filesGrid) {
+              filesGrid.classList.remove('file-drop-zone-active');
+              polyAudio.playSuccess();
+              this.notifyIsland(`📥 Dropped ${fileName} into Files`);
+              // Spring back to its original slot on desktop
+              const prev = positionMap.get(fileName);
+              if (prev) {
+                fileEl.style.left = `${prev.x}px`;
+                fileEl.style.top = `${prev.y}px`;
+              }
+              return;
+            }
+
+            // Snap to nearest free desktop grid cell
+            const currentX = parseFloat(fileEl.style.left) || initialLeft;
+            const currentY = parseFloat(fileEl.style.top) || initialTop;
+            const preliminary = snapToGrid(currentX + rect.width / 2, currentY + rect.height / 2);
+            const freeSlot = getNearestFreeSlot(preliminary.col, preliminary.row, fileName);
+            const finalX = gridOriginX + freeSlot.col * gridCellW;
+            const finalY = gridOriginY + freeSlot.row * gridCellH;
+
+            fileEl.style.transition = 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)';
+            fileEl.style.left = `${finalX}px`;
+            fileEl.style.top = `${finalY}px`;
+
+            positionMap.set(fileName, {
+              x: finalX,
+              y: finalY,
+              col: freeSlot.col,
+              row: freeSlot.row
+            });
+
+            savePositions();
+            polyAudio.playSnap();
+            this.notifyIsland(`📍 Positioned ${fileName}`);
+          } else {
+            // Normal click
+            desktopFiles.forEach(f => f.classList.remove('selected'));
+            fileEl.classList.add('selected');
+            polyAudio.playClick();
+          }
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
       });
 
       fileEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
-        const fileName = fileEl.dataset.file;
         this.openQuickLook(fileName);
       });
 
@@ -2131,7 +2617,7 @@ class PolyOS {
         e.stopPropagation();
         desktopFiles.forEach(f => f.classList.remove('selected'));
         fileEl.classList.add('selected');
-        activeCtxTarget = fileEl.dataset.file;
+        activeCtxTarget = fileName;
 
         if (ctxMenu) {
           ctxMenu.classList.remove('hidden');
@@ -2148,7 +2634,7 @@ class PolyOS {
     const desktopEl = document.getElementById('desktop');
     if (desktopEl && ctxMenu) {
       desktopEl.addEventListener('contextmenu', (e) => {
-        if (e.target.closest('.desktop-file') || e.target.closest('#dock-container') || e.target.closest('#top-bar') || e.target.closest('.window')) {
+        if (e.target.closest('.desktop-file') || e.target.closest('#dock-container') || e.target.closest('#top-bar') || e.target.closest('.window') || e.target.closest('.desktop-widget')) {
           return;
         }
         e.preventDefault();
@@ -2196,15 +2682,7 @@ class PolyOS {
 
     document.getElementById('ctx-clean-icons')?.addEventListener('click', () => {
       ctxMenu?.classList.add('hidden');
-      const filesContainer = document.getElementById('desktop-files');
-      if (filesContainer) {
-        filesContainer.style.transform = 'scale(0.96)';
-        setTimeout(() => {
-          filesContainer.style.transform = 'scale(1)';
-        }, 150);
-      }
-      this.notifyIsland(`🧹 Desktop icons aligned to grid`);
-      polyAudio.playSuccess();
+      alignAllIconsToGrid();
     });
 
     document.getElementById('ctx-trash')?.addEventListener('click', () => {
@@ -2215,7 +2693,11 @@ class PolyOS {
           fileEl.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
           fileEl.style.transform = 'scale(0) translateY(40px)';
           fileEl.style.opacity = '0';
-          setTimeout(() => fileEl.remove(), 300);
+          setTimeout(() => {
+            fileEl.remove();
+            positionMap.delete(activeCtxTarget);
+            savePositions();
+          }, 300);
           this.notifyIsland(`🗑️ Moved ${activeCtxTarget} to Trash`);
           polyAudio.playSuccess();
         }
@@ -2240,11 +2722,16 @@ class PolyOS {
         e.preventDefault();
         this.openQuickLook(selected.dataset.file);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const fileName = selected.dataset.file;
         selected.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
         selected.style.transform = 'scale(0) translateY(40px)';
         selected.style.opacity = '0';
-        setTimeout(() => selected.remove(), 300);
-        this.notifyIsland(`🗑️ Deleted ${selected.dataset.file}`);
+        setTimeout(() => {
+          selected.remove();
+          positionMap.delete(fileName);
+          savePositions();
+        }, 300);
+        this.notifyIsland(`🗑️ Deleted ${fileName}`);
         polyAudio.playSuccess();
       }
     });
@@ -2342,7 +2829,14 @@ class PolyOS {
   initSmartWidget() {
     const widget = document.getElementById('desktop-smart-widget');
     if (widget) {
-      widget.addEventListener('click', () => {
+      widget.addEventListener('click', (e) => {
+        // If clicking the zram toggle pill, toggle algorithm directly
+        if (e.target && e.target.id === 'widget-zram-pill') {
+          e.stopPropagation();
+          const targetAlgo = (this.zram.algorithm === 'lz4') ? 'zstd' : 'lz4';
+          this.setZramAlgorithm(targetAlgo);
+          return;
+        }
         this.launchApp('telemetry');
         polyAudio.playClick();
       });
@@ -2350,7 +2844,122 @@ class PolyOS {
       widget.title = 'Click to open Process Monitor';
     }
 
+    this.fetchZramTelemetry();
     this.syncSystemMetrics();
+  }
+
+  async fetchZramTelemetry() {
+    try {
+      const resp = await fetch('/api/zram/stats');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.ratio) {
+          this.zram = {
+            algorithm: data.algorithm || this.zram.algorithm,
+            ratio: data.ratio,
+            ratioStr: data.ratio_str || `${data.ratio.toFixed(2)}x`,
+            origMb: data.orig_mb || 112.0,
+            comprMb: data.compr_mb || 34.6,
+            savingsMb: data.savings_mb || 77.4,
+            savingsPercent: data.savings_percent || 69.1,
+            isReal: data.is_real || false,
+            device: data.device || '/sys/block/zram0'
+          };
+        }
+      }
+    } catch(e) {
+      // Fallback calculation in offline mode
+      const isLz4 = (this.zram.algorithm === 'lz4');
+      const ratio = isLz4 ? 3.24 : 4.28;
+      const frozenCount = Array.from(this.windows.values()).filter(w => w.isFrozen).length;
+      const uncompr = 112.0 + frozenCount * 68.0;
+      const compr = uncompr / ratio;
+      this.zram.ratio = ratio;
+      this.zram.ratioStr = `${ratio.toFixed(2)}x`;
+      this.zram.origMb = Math.round(uncompr * 10) / 10;
+      this.zram.comprMb = Math.round(compr * 10) / 10;
+      this.zram.savingsMb = Math.round((uncompr - compr) * 10) / 10;
+      this.zram.savingsPercent = Math.round((1 - compr / uncompr) * 1000) / 10;
+    }
+    this.updateZramUI();
+  }
+
+  async setZramAlgorithm(newAlgo) {
+    newAlgo = newAlgo.toLowerCase().trim();
+    if (newAlgo !== 'lz4' && newAlgo !== 'zstd') return;
+
+    this.zram.algorithm = newAlgo;
+    localStorage.setItem('poly_zram_algo', newAlgo);
+
+    try {
+      await fetch(`/api/zram/algorithm?set=${newAlgo}`);
+    } catch(e) {}
+
+    await this.fetchZramTelemetry();
+    this.notifyIsland(`⚡ ZRAM backend: ${newAlgo.toUpperCase()} (${this.zram.ratioStr} ratio)`);
+    polyAudio.playSuccess();
+  }
+
+  updateZramUI() {
+    // 1. Desktop widget pill
+    const widgetPill = document.getElementById('widget-zram-pill');
+    if (widgetPill) {
+      widgetPill.textContent = this.zram.algorithm === 'zstd' ? `📦 ZSTD ${this.zram.ratioStr}` : `⚡ LZ4 ${this.zram.ratioStr}`;
+      widgetPill.className = `widget-zram-pill ${this.zram.algorithm === 'zstd' ? 'algo-zstd' : ''}`;
+    }
+
+    // 2. Settings Storage Tab (if open)
+    const ratioBadge = document.getElementById('zram-ratio-badge');
+    if (ratioBadge) {
+      ratioBadge.textContent = `${this.zram.ratioStr} Ratio`;
+      ratioBadge.style.color = this.zram.algorithm === 'zstd' ? '#d175ff' : '#30d158';
+      ratioBadge.style.borderColor = this.zram.algorithm === 'zstd' ? 'rgba(191,90,242,0.4)' : 'rgba(48,209,88,0.3)';
+      ratioBadge.style.background = this.zram.algorithm === 'zstd' ? 'rgba(191,90,242,0.15)' : 'rgba(48,209,88,0.15)';
+    }
+
+    const algoDesc = document.getElementById('zram-algo-desc');
+    if (algoDesc) {
+      algoDesc.textContent = this.zram.algorithm === 'zstd'
+        ? 'ZSTD: Maximum compaction (4.3x ratio, 1.8ms) with high RAM savings'
+        : 'LZ4: Ultra-low latency (0.4ms) with high real-time throughput';
+    }
+
+    const btnLz4 = document.getElementById('zram-btn-lz4');
+    const btnZstd = document.getElementById('zram-btn-zstd');
+    if (btnLz4 && btnZstd) {
+      btnLz4.classList.toggle('active', this.zram.algorithm === 'lz4');
+      btnZstd.classList.toggle('active', this.zram.algorithm === 'zstd');
+    }
+
+    const origVal = document.getElementById('zram-orig-val');
+    if (origVal) origVal.textContent = `${this.zram.origMb.toFixed(1)} MB`;
+
+    const comprVal = document.getElementById('zram-compr-val');
+    if (comprVal) comprVal.textContent = `${this.zram.comprMb.toFixed(1)} MB`;
+
+    const savedVal = document.getElementById('zram-saved-val');
+    if (savedVal) savedVal.textContent = `${this.zram.savingsMb.toFixed(1)} MB (${this.zram.savingsPercent}%)`;
+
+    const storageBarZram = document.getElementById('storage-bar-zram');
+    if (storageBarZram) {
+      const barPct = Math.max(5, Math.min(22, Math.round(this.zram.comprMb / 3.5)));
+      storageBarZram.style.width = `${barPct}%`;
+      storageBarZram.title = `ZRAM (${this.zram.algorithm.toUpperCase()}): ${this.zram.comprMb.toFixed(1)} MB used`;
+    }
+
+    const storageZramLabel = document.getElementById('storage-zram-label');
+    if (storageZramLabel) {
+      storageZramLabel.textContent = `🟢 ZRAM (${this.zram.ratioStr} ratio, ${this.zram.algorithm.toUpperCase()}): ${this.zram.comprMb.toFixed(1)} MB`;
+    }
+
+    // 3. Process Monitor Telemetry Header (if open)
+    const procMonitorSummary = document.getElementById('telemetry-zram-summary');
+    if (procMonitorSummary) {
+      procMonitorSummary.innerHTML = `
+        <span>ZRAM Backend: <strong style="color:${this.zram.algorithm === 'zstd' ? '#d175ff' : '#64d2ff'};">${this.zram.algorithm.toUpperCase()}</strong> (${this.zram.ratioStr})</span>
+        <span>Compacted: <strong>${this.zram.comprMb.toFixed(1)} MB</strong> (saved ${this.zram.savingsMb.toFixed(1)} MB)</span>
+      `;
+    }
   }
 
   syncSystemMetrics() {
@@ -2546,6 +3155,23 @@ class PolyOS {
       `;
     }
 
+    const isCodeFile = /\.(rs|py|js|ts|html|md|toml|json)$/i.test(fileName) || fileName === 'physics.rs' || fileName === 'polyd.py' || fileName === 'shell.js' || fileName === 'daemon.rs';
+    if (isCodeFile) {
+      bodyEl.innerHTML += `
+        <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+          <button id="ql-open-code-btn" style="background:linear-gradient(135deg, #0a84ff 0%, #0066cc 100%); color:#fff; border:none; padding:8px 18px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 2px 10px rgba(10,132,255,0.35);">
+            <span>💻</span> Open in Poly Code Studio
+          </button>
+        </div>
+      `;
+      setTimeout(() => {
+        document.getElementById('ql-open-code-btn')?.addEventListener('click', () => {
+          modal.classList.add('hidden');
+          this.launchApp('code', fileName);
+        });
+      }, 50);
+    }
+
     modal.classList.remove('hidden');
   }
 
@@ -2696,16 +3322,7 @@ class PolyOS {
       });
     }
 
-    // 2. Quick Position Switcher button (Bottom -> Left -> Right)
-    const posBtn = document.getElementById('dock-pos-toggle');
-    if (posBtn) {
-      posBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.cycleDockPosition();
-      });
-    }
-
-    // 3. Settings flyout popup toggle
+    // 2. Settings flyout popup toggle
     const settingsBtn = document.getElementById('dock-settings-btn');
     const popup = document.getElementById('dock-settings-popup');
     if (settingsBtn && popup) {
@@ -2723,42 +3340,24 @@ class PolyOS {
       });
     }
 
-    // 4. Right-click context menu on dock surface
+    // 3. Right-click context menu on dock surface
     const dockEl = document.getElementById('dock');
     if (dockEl && popup) {
       dockEl.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
         popup.classList.remove('hidden');
-        if (this.dockPos === 'bottom') {
-          popup.style.bottom = '84px';
-          popup.style.left = `${Math.min(Math.max(e.clientX - 160, 20), window.innerWidth - 340)}px`;
-          popup.style.right = 'auto';
-          popup.style.top = 'auto';
-        } else if (this.dockPos === 'left') {
-          popup.style.left = '84px';
-          popup.style.top = `${Math.min(Math.max(e.clientY - 100, 50), window.innerHeight - 250)}px`;
-          popup.style.bottom = 'auto';
-          popup.style.right = 'auto';
-        } else if (this.dockPos === 'right') {
-          popup.style.right = '84px';
-          popup.style.top = `${Math.min(Math.max(e.clientY - 100, 50), window.innerHeight - 250)}px`;
-          popup.style.bottom = 'auto';
-          popup.style.left = 'auto';
-        }
+        popup.style.bottom = '84px';
+        popup.style.left = `${Math.min(Math.max(e.clientX - 160, 20), window.innerWidth - 340)}px`;
+        popup.style.right = 'auto';
+        popup.style.top = 'auto';
       });
     }
 
-    // 5. Segmented control handlers inside settings popup
+    // 4. Segmented control handlers inside settings popup
     document.querySelectorAll('#pref-style .seg-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         this.setDockMode(btn.dataset.style);
-      });
-    });
-
-    document.querySelectorAll('#pref-pos .seg-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.setDockPosition(btn.dataset.pos);
       });
     });
 
@@ -2786,18 +3385,10 @@ class PolyOS {
 
     if (dock) {
       dock.addEventListener('wheel', (e) => {
-        const isVertical = (this.dockPos === 'left' || this.dockPos === 'right');
-        if (isVertical) {
-          if (dockMiddle.scrollHeight > dockMiddle.clientHeight) {
-            e.preventDefault();
-            dockMiddle.scrollTop += e.deltaY;
-          }
-        } else {
-          if (dockMiddle.scrollWidth > dockMiddle.clientWidth) {
-            e.preventDefault();
-            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-            dockMiddle.scrollLeft += delta;
-          }
+        if (dockMiddle.scrollWidth > dockMiddle.clientWidth) {
+          e.preventDefault();
+          const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+          dockMiddle.scrollLeft += delta;
         }
       }, { passive: false });
     }
@@ -2845,40 +3436,6 @@ class PolyOS {
     this.setDockMode(this.dockMode === 'floating' ? 'taskbar' : 'floating');
   }
 
-  setDockPosition(pos) {
-    this.dockPos = pos;
-    const container = document.getElementById('dock-container');
-    const desktop = document.getElementById('desktop');
-    if (container) {
-      container.classList.remove('pos-bottom', 'pos-left', 'pos-right');
-      container.classList.add(`pos-${pos}`);
-    }
-    if (desktop) {
-      desktop.classList.remove('dock-pos-bottom', 'dock-pos-left', 'dock-pos-right');
-      desktop.classList.add(`dock-pos-${pos}`);
-    }
-
-    const posIcons = { bottom: '⬇️', left: '⬅️', right: '➡️' };
-    const posTitles = { bottom: 'Bottom Bar', left: 'Left Side Dock', right: 'Right Side Dock' };
-    const iconEl = document.getElementById('dock-pos-icon');
-    if (iconEl) iconEl.textContent = posIcons[pos] || '📍';
-    const tooltipEl = document.getElementById('dock-pos-tooltip');
-    if (tooltipEl) tooltipEl.textContent = `Position: ${posTitles[pos]}`;
-
-    document.querySelectorAll('#pref-pos .seg-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.pos === pos);
-    });
-
-    this.notifyIsland(`📍 Dock Position: ${posTitles[pos]}`);
-    this.updateDockAutoScaling();
-  }
-
-  cycleDockPosition() {
-    const order = ['bottom', 'left', 'right'];
-    const nextIdx = (order.indexOf(this.dockPos) + 1) % order.length;
-    this.setDockPosition(order[nextIdx]);
-  }
-
   setDockAlignment(align) {
     this.dockAlign = align;
     const container = document.getElementById('dock-container');
@@ -2917,22 +3474,6 @@ class PolyOS {
     const pinnedItems = document.querySelectorAll('#dock-pinned-apps .dock-item');
     const stripItems = document.querySelectorAll('#dock-windows-strip .dock-item');
     const totalItems = pinnedItems.length + stripItems.length;
-
-    const isVertical = (this.dockPos === 'left' || this.dockPos === 'right');
-    if (isVertical) {
-      const availH = window.innerHeight - 140;
-      const normalNeeded = totalItems * 52;
-      if (normalNeeded > availH) {
-        const size = Math.max(20, Math.min(42, Math.floor((availH / Math.max(1, totalItems)) - 6)));
-        const gap = Math.max(2, Math.min(6, Math.floor(size * 0.12)));
-        dock.style.setProperty('--dock-icon-size', `${size}px`);
-        dock.style.setProperty('--dock-gap', `${gap}px`);
-      } else {
-        dock.style.removeProperty('--dock-icon-size');
-        dock.style.removeProperty('--dock-gap');
-      }
-      return;
-    }
 
     // Horizontal calculation: total available space for items between Start button and Tray
     const screenW = window.innerWidth;
@@ -3055,7 +3596,287 @@ class PolyOS {
     setTimeout(() => { if (island) island.style.transform = 'scale(1)'; }, 250);
   }
 
-  launchApp(appName) {
+  parseMarkdown(md) {
+    if (!md || !md.trim()) {
+      return '<div class="notes-empty-state"><span class="empty-icon">📝</span><h3>No notes yet</h3><p>Type markdown in the editor or click buttons on the toolbar to begin.</p></div>';
+    }
+
+    const formatInline = (str) => {
+      if (!str) return '';
+      let res = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return res
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__(.*?)__/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/_([^_]+)_/g, '<em>$1</em>')
+        .replace(/~~(.*?)~~/g, '<del>$1</del>')
+        .replace(/==(.*?)==/g, '<mark class="md-mark">$1</mark>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
+    };
+
+    const renderTable = (tableLines) => {
+      if (tableLines.length < 2) return tableLines.map(formatInline).join('<br>');
+      const parseRow = (line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+      const headers = parseRow(tableLines[0]);
+      const hasSeparator = /^\s*\|?\s*:?-+:?\s*\|/.test(tableLines[1]);
+      const startIdx = hasSeparator ? 2 : 1;
+      let html = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      headers.forEach(h => { html += '<th>' + formatInline(h) + '</th>'; });
+      html += '</tr></thead><tbody>';
+      for (let i = startIdx; i < tableLines.length; i++) {
+        html += '<tr>';
+        parseRow(tableLines[i]).forEach(c => { html += '<td>' + formatInline(c) + '</td>'; });
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+      return html;
+    };
+
+    // 1. Extract fenced code blocks
+    const codeBlocks = [];
+    let processed = md.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push({
+        lang: lang ? lang.trim() : 'code',
+        code: code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      });
+      return `@@CODE_BLOCK_${idx}@@`;
+    });
+
+    // 2. Extract inline code
+    const inlineCodes = [];
+    processed = processed.replace(/`([^`\n]+)`/g, (match, code) => {
+      const idx = inlineCodes.length;
+      inlineCodes.push(code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+      return `@@INLINE_CODE_${idx}@@`;
+    });
+
+    const lines = processed.split('\n');
+    const output = [];
+    let inList = false;
+    let listType = null;
+    let inBlockquote = false;
+    let blockquoteLines = [];
+    let inTable = false;
+    let tableLines = [];
+
+    const closeList = () => {
+      if (inList) {
+        output.push(listType === 'ol' ? '</ol>' : '</ul>');
+        inList = false;
+        listType = null;
+      }
+    };
+
+    const closeBlockquote = () => {
+      if (inBlockquote) {
+        output.push(`<blockquote class="md-blockquote">${blockquoteLines.map(formatInline).join('<br>')}</blockquote>`);
+        inBlockquote = false;
+        blockquoteLines = [];
+      }
+    };
+
+    const closeTable = () => {
+      if (inTable && tableLines.length > 0) {
+        output.push(renderTable(tableLines));
+        inTable = false;
+        tableLines = [];
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Table row
+      if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+        closeList();
+        closeBlockquote();
+        inTable = true;
+        tableLines.push(line.trim());
+        continue;
+      } else {
+        closeTable();
+      }
+
+      // Blockquote (> ...)
+      if (/^>\s?(.*)/.test(line)) {
+        closeList();
+        closeTable();
+        inBlockquote = true;
+        blockquoteLines.push(line.replace(/^>\s?/, ''));
+        continue;
+      } else {
+        closeBlockquote();
+      }
+
+      // Horizontal rule
+      if (/^(---|---|\*\*\*|___)\s*$/.test(line)) {
+        closeList();
+        output.push('<hr class="notes-hr">');
+        continue;
+      }
+
+      // Headings
+      const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+      if (headingMatch) {
+        closeList();
+        const level = headingMatch[1].length;
+        output.push(`<h${level} class="md-h${level}">${formatInline(headingMatch[2])}</h${level}>`);
+        continue;
+      }
+
+      // Task list item (- [ ] or - [x])
+      const taskMatch = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/);
+      if (taskMatch) {
+        if (!inList || listType !== 'ul') {
+          closeList();
+          inList = true;
+          listType = 'ul';
+          output.push('<ul class="md-task-list">');
+        }
+        const checked = taskMatch[2].toLowerCase() === 'x';
+        const text = taskMatch[3];
+        output.push(`
+          <li class="md-task-item ${checked ? 'completed' : ''}">
+            <label class="md-checkbox-label">
+              <input type="checkbox" class="md-task-checkbox" data-line="${i}" ${checked ? 'checked' : ''}>
+              <span class="md-checkbox-custom"></span>
+              <span class="md-task-text">${formatInline(text)}</span>
+            </label>
+          </li>
+        `);
+        continue;
+      }
+
+      // Unordered list
+      const ulMatch = line.match(/^(\s*)[-*+]\s+(.*)$/);
+      if (ulMatch) {
+        if (!inList || listType !== 'ul') {
+          closeList();
+          inList = true;
+          listType = 'ul';
+          output.push('<ul class="md-ul">');
+        }
+        output.push(`<li>${formatInline(ulMatch[2])}</li>`);
+        continue;
+      }
+
+      // Ordered list
+      const olMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
+      if (olMatch) {
+        if (!inList || listType !== 'ol') {
+          closeList();
+          inList = true;
+          listType = 'ol';
+          output.push('<ol class="md-ol">');
+        }
+        output.push(`<li>${formatInline(olMatch[2])}</li>`);
+        continue;
+      }
+
+      closeList();
+
+      if (line.trim() === '') {
+        continue;
+      }
+
+      if (line.startsWith('@@CODE_BLOCK_')) {
+        output.push(line);
+        continue;
+      }
+
+      output.push(`<p class="md-p">${formatInline(line)}</p>`);
+    }
+
+    closeList();
+    closeBlockquote();
+    closeTable();
+
+    let html = output.join('\n');
+
+    // Restore Code Blocks
+    html = html.replace(/@@CODE_BLOCK_(\d+)@@/g, (_, idx) => {
+      const item = codeBlocks[idx];
+      if (!item) return '';
+      return `
+        <div class="md-code-block">
+          <div class="md-code-header">
+            <span class="md-code-lang">${item.lang.toUpperCase()}</span>
+            <button class="md-code-copy-btn" data-code="${encodeURIComponent(item.code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'))}">Copy</button>
+          </div>
+          <pre><code class="language-${item.lang}">${item.code}</code></pre>
+        </div>
+      `;
+    });
+
+    // Restore Inline Code
+    html = html.replace(/@@INLINE_CODE_(\d+)@@/g, (_, idx) => {
+      const code = inlineCodes[idx];
+      return `<code class="md-inline-code">${code}</code>`;
+    });
+
+    return html;
+  }
+
+  highlightCode(code, lang = 'javascript') {
+    if (!code) return '';
+    let escaped = String(code)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const tokens = [];
+    const addToken = (html) => {
+      const idx = tokens.length;
+      tokens.push(html);
+      return `___POLY_TOK_${idx}___`;
+    };
+
+    const l = (lang || '').toLowerCase();
+
+    if (l === 'rust' || l === 'rs') {
+      escaped = escaped.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, m => addToken(`<span class="tok-comment">${m}</span>`));
+      escaped = escaped.replace(/(r#"(?:[\s\S]*?)"#|"(?:\\.|[^"\\])*")/g, m => addToken(`<span class="tok-string">${m}</span>`));
+      escaped = escaped.replace(/\b([a-zA-Z_]\w*!)/g, m => addToken(`<span class="tok-macro">${m}</span>`));
+      escaped = escaped.replace(/\b(pub|struct|impl|fn|let|mut|match|if|else|for|in|return|as|while|loop|break|continue|const|static|trait|enum|type|where|use|mod|crate|super|self|Self|async|await|dyn|unsafe)\b/g, '<span class="tok-keyword">$1</span>');
+      escaped = escaped.replace(/\b(f32|f64|u8|u16|u32|u64|u128|usize|i8|i16|i32|i64|i128|isize|bool|char|str|String|Vec|Option|Result|Box|Rc|Arc|Some|None|Ok|Err)\b/g, '<span class="tok-type">$1</span>');
+      escaped = escaped.replace(/\b\d+(\.\d+)?([eE][+-]?\d+)?(f32|f64|u32|i32|usize)?\b/g, '<span class="tok-number">$&</span>');
+      escaped = escaped.replace(/\b(?!___POLY_TOK_)([a-zA-Z_]\w*)\s*(?=\()/g, '<span class="tok-function">$1</span>');
+    } else if (l === 'python' || l === 'py') {
+      escaped = escaped.replace(/(#[^\n]*)/g, m => addToken(`<span class="tok-comment">${m}</span>`));
+      escaped = escaped.replace(/("""[\s\S]*?"""|'''[\s\S]*?'''|f"(?:\\.|[^"\\])*"|f'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, m => addToken(`<span class="tok-string">${m}</span>`));
+      escaped = escaped.replace(/(@\w+)/g, '<span class="tok-macro">$1</span>');
+      escaped = escaped.replace(/\b(def|class|import|from|return|if|elif|else|while|for|in|try|except|finally|with|as|lambda|yield|pass|break|continue|raise|global|nonlocal|assert|async|await|is|not|and|or)\b/g, '<span class="tok-keyword">$1</span>');
+      escaped = escaped.replace(/\b(True|False|None|int|float|str|list|dict|set|tuple|bool|len|print|range|open|super|isinstance|enumerate|zip|any|all|min|max|sum)\b/g, '<span class="tok-type">$1</span>');
+      escaped = escaped.replace(/\b\d+(\.\d+)?\b/g, '<span class="tok-number">$&</span>');
+      escaped = escaped.replace(/\b(?!___POLY_TOK_)([a-zA-Z_]\w*)\s*(?=\()/g, '<span class="tok-function">$1</span>');
+    } else if (l === 'html' || l === 'xml') {
+      escaped = escaped.replace(/(&lt;!--[\s\S]*?--&gt;)/g, m => addToken(`<span class="tok-comment">${m}</span>`));
+      escaped = escaped.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, m => addToken(`<span class="tok-string">${m}</span>`));
+      escaped = escaped.replace(/\b([a-zA-Z0-9_-]+)(?==)/g, m => addToken(`<span class="tok-attr">${m}</span>`));
+      escaped = escaped.replace(/(&lt;\/?[a-zA-Z0-9_-]+)/g, '<span class="tok-tag">$1</span>');
+      escaped = escaped.replace(/(&gt;)/g, '<span class="tok-tag">$1</span>');
+    } else if (l === 'markdown' || l === 'md') {
+      escaped = escaped.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, m => addToken(`<span class="tok-macro">${m}</span>`));
+      escaped = escaped.replace(/(^#{1,6}\s+[^\n]*)/gm, '<span class="tok-header">$1</span>');
+      escaped = escaped.replace(/(\*\*.*?\*\*)/g, m => addToken(`<span class="tok-keyword">${m}</span>`));
+      escaped = escaped.replace(/(\*.*?\*)/g, '<span class="tok-type">$1</span>');
+      escaped = escaped.replace(/(^&gt;\s+[^\n]*)/gm, '<span class="tok-comment">$1</span>');
+      escaped = escaped.replace(/(\[.*?\]\(.*?\))/g, '<span class="tok-string">$1</span>');
+    } else {
+      // Default: JavaScript / TypeScript / JSON
+      escaped = escaped.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, m => addToken(`<span class="tok-comment">${m}</span>`));
+      escaped = escaped.replace(/(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, m => addToken(`<span class="tok-string">${m}</span>`));
+      escaped = escaped.replace(/\b(const|let|var|function|return|if|else|for|while|switch|case|break|default|try|catch|finally|throw|new|class|extends|import|export|from|async|await|typeof|instanceof|in|of|this|void|delete|yield)\b/g, '<span class="tok-keyword">$1</span>');
+      escaped = escaped.replace(/\b(true|false|null|undefined|NaN|Infinity|Array|Object|String|Number|Boolean|Promise|Map|Set|Math|JSON|console|window|document|setTimeout|setInterval|clearInterval)\b/g, '<span class="tok-type">$1</span>');
+      escaped = escaped.replace(/\b\d+(\.\d+)?\b/g, '<span class="tok-number">$&</span>');
+      escaped = escaped.replace(/\b(?!___POLY_TOK_)([a-zA-Z_]\w*)\s*(?=\()/g, '<span class="tok-function">$1</span>');
+    }
+
+    return escaped.replace(/___POLY_TOK_(\d+)___/g, (_, id) => tokens[parseInt(id, 10)]);
+  }
+
+  launchApp(appName, initialParam = null) {
     switch(appName) {
       case 'browser':
         this.createWindow('Poly Browser', '🌐', 120, 80, 850, 520, `
@@ -3301,19 +4122,406 @@ class PolyOS {
         }, 50);
         break;
 
-      case 'notes':
-        this.createWindow('Notes & Ideas', '📝', 280, 180, 580, 380, `
-          <div style="display:flex; flex-direction:column; height:100%; gap:8px;">
-            <input type="text" value="Poly OS Roadmap" style="font-size:16px; font-weight:700; background:none; border:none; color:#fff; outline:none;">
-            <textarea style="flex:1; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px; color:#eee; font-family:inherit; resize:none; outline:none;" placeholder="Write thoughts...">
-✓ Fluid mass-spring-damper math implemented
-✓ Aero Snap & corner quarter tiling active
-✓ iOS-style dynamic dock and control center
-✓ cgroups v2 automated background freezing
-[ ] Native ARM64 & x86_64 bootable ISO build</textarea>
+      case 'notes': {
+        const defaultTitle = 'Poly OS Roadmap & Notes';
+        const defaultContent = `# Poly OS Roadmap & Notes
+
+> **Poly OS** combines Unix simplicity with iOS-level spring physics and modern frosted glass design.
+
+## 🚀 Core Milestones
+- [x] Fluid mass-spring-damper math implemented
+- [x] Aero Snap & corner quarter tiling active
+- [x] iOS-style dynamic dock and Windows taskbar toggle
+- [x] Unified horizontal dock with multi-window grouping
+- [x] Poly Settings with sleek custom scrollbars
+- [ ] Native ARM64 & x86_64 bootable ISO build
+
+## ⚡ Performance Matrix
+| Subsystem | Engine | Target |
+|---|---|---|
+| UI Compositor | Rust + Smithay | 120 FPS |
+| Window Physics | RK4 Spring Integration | < 0.5ms |
+| Background Daemon | Linux cgroups v2 | 0% Idle CPU |
+| Audio Server | PipeWire Low-Latency | 5.2ms |
+
+## 💻 Interactive Code Example
+\`\`\`rust
+pub struct Spring1D {
+    pub current: f32,
+    pub target: f32,
+    pub stiffness: f32, // 260.0
+    pub damping: f32,   // 0.82
+}
+\`\`\`
+
+## 📝 Developer Scratchpad
+1. Test markdown live preview with checklists and tables
+2. Toggle between **Edit**, **Split**, and **Preview** modes above
+3. Click checkboxes right in the preview to toggle task status!`;
+
+        const savedTitle = localStorage.getItem('poly_notes_title') || defaultTitle;
+        const savedContent = localStorage.getItem('poly_notes_content') || defaultContent;
+        const savedMode = localStorage.getItem('poly_notes_mode') || 'split';
+
+        const notesWin = this.createWindow('Notes & Ideas', '📝', 240, 110, 720, 460, `
+          <div class="notes-app-root">
+            <!-- Top Control Bar -->
+            <div class="notes-top-bar">
+              <div class="notes-title-wrap">
+                <span class="notes-title-icon">📝</span>
+                <input type="text" class="notes-title-input" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Note Title...">
+              </div>
+              
+              <!-- View Mode Switcher -->
+              <div class="notes-mode-switcher">
+                <button class="seg-btn ${savedMode === 'edit' ? 'active' : ''}" data-mode="edit" title="Markdown Editor Only">✏️ Edit</button>
+                <button class="seg-btn ${savedMode === 'split' ? 'active' : ''}" data-mode="split" title="Side-by-Side Live Preview">🌗 Split</button>
+                <button class="seg-btn ${savedMode === 'preview' ? 'active' : ''}" data-mode="preview" title="Full Rendered Document">👁️ Preview</button>
+              </div>
+
+              <!-- Action Tools -->
+              <div class="notes-action-tools">
+                <button class="notes-action-btn notes-copy-btn" title="Copy Raw Markdown">📋 Copy</button>
+                <button class="notes-action-btn notes-clear-btn" title="Reset to Sample Template">🔄 Reset</button>
+              </div>
+            </div>
+
+            <!-- Quick Formatting Toolbar -->
+            <div class="notes-format-toolbar">
+              <button class="format-btn" data-action="bold" title="Bold (**text**)"><b>B</b></button>
+              <button class="format-btn" data-action="italic" title="Italic (*text*)"><i>I</i></button>
+              <button class="format-btn" data-action="heading" title="Heading (## )"><b>H</b></button>
+              <button class="format-btn" data-action="code" title="Inline Code / Block"><code>&lt;/&gt;</code></button>
+              <button class="format-btn" data-action="link" title="Hyperlink">🔗</button>
+              <div class="notes-tb-divider"></div>
+              <button class="format-btn" data-action="task" title="Interactive Task Checkbox">☑️ Task</button>
+              <button class="format-btn" data-action="bullet" title="Bullet List">• List</button>
+              <button class="format-btn" data-action="numbered" title="Numbered List">1. List</button>
+              <button class="format-btn" data-action="quote" title="Blockquote">❝ Quote</button>
+              <button class="format-btn" data-action="table" title="Insert Table">⊞ Table</button>
+              <button class="format-btn" data-action="hr" title="Horizontal Divider">―</button>
+            </div>
+
+            <!-- Split Workspace (Editor + Live Preview) -->
+            <div class="notes-workspace mode-${savedMode}">
+              <!-- Editor Pane -->
+              <div class="notes-editor-pane">
+                <textarea class="notes-textarea" spellcheck="false" placeholder="Write markdown here (GFM supported)..."></textarea>
+              </div>
+
+              <!-- Live Rendered Markdown Preview Pane -->
+              <div class="notes-preview-pane">
+                <div class="notes-preview-scroll">
+                  <div class="notes-preview-content markdown-body"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Info & Word Count Bar -->
+            <div class="notes-status-bar">
+              <div class="notes-stats-left">
+                <span class="notes-stat-words">0 words</span>
+                <span class="notes-stat-sep">•</span>
+                <span class="notes-stat-chars">0 characters</span>
+                <span class="notes-stat-sep">•</span>
+                <span class="notes-stat-tasks">0/0 completed</span>
+              </div>
+              <div class="notes-status-right">
+                <span class="notes-save-badge">⚡ Auto-saved (Local)</span>
+              </div>
+            </div>
           </div>
         `);
+
+        setTimeout(() => {
+          if (!notesWin || !notesWin.element) return;
+          const root = notesWin.element.querySelector('.notes-app-root');
+          if (!root) return;
+
+          const titleInput = root.querySelector('.notes-title-input');
+          const textarea = root.querySelector('.notes-textarea');
+          const previewScroll = root.querySelector('.notes-preview-scroll');
+          const previewContent = root.querySelector('.notes-preview-content');
+          const workspace = root.querySelector('.notes-workspace');
+          const statWords = root.querySelector('.notes-stat-words');
+          const statChars = root.querySelector('.notes-stat-chars');
+          const statTasks = root.querySelector('.notes-stat-tasks');
+          const copyBtn = root.querySelector('.notes-copy-btn');
+          const resetBtn = root.querySelector('.notes-clear-btn');
+          const modeBtns = root.querySelectorAll('.notes-mode-switcher .seg-btn');
+          const formatBtns = root.querySelectorAll('.format-btn');
+
+          textarea.value = savedContent;
+
+          const updateStats = () => {
+            const text = textarea.value;
+            const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+            const chars = text.length;
+            const allTasks = (text.match(/[-*]\s+\[[ xX]\]/g) || []).length;
+            const completedTasks = (text.match(/[-*]\s+\[[xX]\]/g) || []).length;
+
+            if (statWords) statWords.textContent = `${words} ${words === 1 ? 'word' : 'words'}`;
+            if (statChars) statChars.textContent = `${chars} ${chars === 1 ? 'character' : 'characters'}`;
+            if (statTasks) {
+              if (allTasks > 0) {
+                statTasks.style.display = 'inline';
+                statTasks.textContent = `${completedTasks}/${allTasks} tasks completed`;
+              } else {
+                statTasks.style.display = 'none';
+              }
+            }
+          };
+
+          const updatePreview = () => {
+            const md = textarea.value;
+            previewContent.innerHTML = this.parseMarkdown(md);
+            updateStats();
+            localStorage.setItem('poly_notes_content', md);
+          };
+
+          // Initial render
+          updatePreview();
+
+          // Real-time typing input
+          textarea.addEventListener('input', () => {
+            updatePreview();
+          });
+
+          // Title change save
+          if (titleInput) {
+            titleInput.addEventListener('input', () => {
+              localStorage.setItem('poly_notes_title', titleInput.value);
+            });
+          }
+
+          // Keyboard Shortcuts in Textarea
+          textarea.addEventListener('keydown', (e) => {
+            // Tab key: indent with 2 spaces
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              const start = textarea.selectionStart;
+              const end = textarea.selectionEnd;
+              textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
+              textarea.selectionStart = textarea.selectionEnd = start + 2;
+              updatePreview();
+            }
+            // Ctrl/Cmd + B: Bold
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+              e.preventDefault();
+              applyFormat('bold');
+            }
+            // Ctrl/Cmd + I: Italic
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+              e.preventDefault();
+              applyFormat('italic');
+            }
+          });
+
+          // Interactive Checkboxes in Preview Pane
+          previewContent.addEventListener('change', (e) => {
+            if (e.target.classList.contains('md-task-checkbox')) {
+              const lineIdx = parseInt(e.target.dataset.line, 10);
+              const lines = textarea.value.split('\n');
+              if (!isNaN(lineIdx) && lines[lineIdx] !== undefined) {
+                if (e.target.checked) {
+                  lines[lineIdx] = lines[lineIdx].replace(/(\s*[-*]\s+)\[\s*\]/, '$1[x]');
+                } else {
+                  lines[lineIdx] = lines[lineIdx].replace(/(\s*[-*]\s+)\[[xX]\]/, '$1[ ]');
+                }
+                textarea.value = lines.join('\n');
+                updatePreview();
+                if (window.polyAudio) polyAudio.playClick();
+              }
+            }
+          });
+
+          // Code block copy button
+          previewContent.addEventListener('click', (e) => {
+            const btn = e.target.closest('.md-code-copy-btn');
+            if (btn && btn.dataset.code) {
+              const raw = decodeURIComponent(btn.dataset.code);
+              navigator.clipboard.writeText(raw).then(() => {
+                btn.textContent = '✓ Copied!';
+                if (window.polyAudio) polyAudio.playClick();
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+              });
+            }
+          });
+
+          // Synchronized Scrolling in Split Mode
+          let isSyncingEditor = false;
+          let isSyncingPreview = false;
+          textarea.addEventListener('scroll', () => {
+            if (workspace.classList.contains('mode-split')) {
+              if (isSyncingEditor) { isSyncingEditor = false; return; }
+              isSyncingPreview = true;
+              const maxEditor = textarea.scrollHeight - textarea.clientHeight;
+              const maxPreview = previewScroll.scrollHeight - previewScroll.clientHeight;
+              if (maxEditor > 0 && maxPreview > 0) {
+                previewScroll.scrollTop = (textarea.scrollTop / maxEditor) * maxPreview;
+              }
+            }
+          });
+          previewScroll.addEventListener('scroll', () => {
+            if (workspace.classList.contains('mode-split')) {
+              if (isSyncingPreview) { isSyncingPreview = false; return; }
+              isSyncingEditor = true;
+              const maxEditor = textarea.scrollHeight - textarea.clientHeight;
+              const maxPreview = previewScroll.scrollHeight - previewScroll.clientHeight;
+              if (maxEditor > 0 && maxPreview > 0) {
+                textarea.scrollTop = (previewScroll.scrollTop / maxPreview) * maxEditor;
+              }
+            }
+          });
+
+          // View Mode Switcher
+          modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+              const mode = btn.dataset.mode;
+              workspace.className = `notes-workspace mode-${mode}`;
+              modeBtns.forEach(b => b.classList.toggle('active', b === btn));
+              localStorage.setItem('poly_notes_mode', mode);
+              if (window.polyAudio) polyAudio.playClick();
+            });
+          });
+
+          // Formatting Toolbar Handlers
+          const applyFormat = (action) => {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const val = textarea.value;
+            const selected = val.substring(start, end);
+            let replacement = '';
+            let cursorOffset = 0;
+
+            switch (action) {
+              case 'bold':
+                replacement = `**${selected || 'bold text'}**`;
+                cursorOffset = selected ? replacement.length : 2;
+                break;
+              case 'italic':
+                replacement = `*${selected || 'italic text'}*`;
+                cursorOffset = selected ? replacement.length : 1;
+                break;
+              case 'heading': {
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                const beforeLine = val.substring(0, lineStart);
+                const afterLine = val.substring(lineStart);
+                textarea.value = beforeLine + '## ' + afterLine;
+                textarea.focus();
+                textarea.setSelectionRange(start + 3, end + 3);
+                updatePreview();
+                if (window.polyAudio) polyAudio.playClick();
+                return;
+              }
+              case 'code':
+                if (selected.includes('\n')) {
+                  replacement = `\`\`\`javascript\n${selected || '// code here'}\n\`\`\``;
+                } else {
+                  replacement = `\`${selected || 'code'}\``;
+                }
+                cursorOffset = selected ? replacement.length : 1;
+                break;
+              case 'link':
+                replacement = `[${selected || 'Link Title'}](https://example.com)`;
+                cursorOffset = replacement.length;
+                break;
+              case 'task': {
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                const beforeLine = val.substring(0, lineStart);
+                const afterLine = val.substring(lineStart);
+                textarea.value = beforeLine + '- [ ] ' + afterLine;
+                textarea.focus();
+                textarea.setSelectionRange(start + 6, end + 6);
+                updatePreview();
+                if (window.polyAudio) polyAudio.playClick();
+                return;
+              }
+              case 'bullet': {
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                const beforeLine = val.substring(0, lineStart);
+                const afterLine = val.substring(lineStart);
+                textarea.value = beforeLine + '- ' + afterLine;
+                textarea.focus();
+                textarea.setSelectionRange(start + 2, end + 2);
+                updatePreview();
+                if (window.polyAudio) polyAudio.playClick();
+                return;
+              }
+              case 'numbered': {
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                const beforeLine = val.substring(0, lineStart);
+                const afterLine = val.substring(lineStart);
+                textarea.value = beforeLine + '1. ' + afterLine;
+                textarea.focus();
+                textarea.setSelectionRange(start + 3, end + 3);
+                updatePreview();
+                if (window.polyAudio) polyAudio.playClick();
+                return;
+              }
+              case 'quote': {
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                const beforeLine = val.substring(0, lineStart);
+                const afterLine = val.substring(lineStart);
+                textarea.value = beforeLine + '> ' + afterLine;
+                textarea.focus();
+                textarea.setSelectionRange(start + 2, end + 2);
+                updatePreview();
+                if (window.polyAudio) polyAudio.playClick();
+                return;
+              }
+              case 'table':
+                replacement = `\n| Component | Status | Target |\n|---|---|---|\n| Compositor | Active | 120 FPS |\n| Kernel IPC | Stable | Realtime |\n`;
+                cursorOffset = replacement.length;
+                break;
+              case 'hr':
+                replacement = `\n---\n`;
+                cursorOffset = replacement.length;
+                break;
+            }
+
+            if (replacement) {
+              textarea.value = val.substring(0, start) + replacement + val.substring(end);
+              textarea.focus();
+              textarea.setSelectionRange(start + cursorOffset, start + cursorOffset);
+              updatePreview();
+              if (window.polyAudio) polyAudio.playClick();
+            }
+          };
+
+          formatBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+              applyFormat(btn.dataset.action);
+            });
+          });
+
+          // Copy Button
+          if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(textarea.value).then(() => {
+                copyBtn.textContent = '✓ Copied!';
+                if (window.polyAudio) polyAudio.playClick();
+                setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+              });
+            });
+          }
+
+          // Reset Button
+          if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+              if (confirm('Reset note to the default roadmap template?')) {
+                textarea.value = defaultContent;
+                if (titleInput) titleInput.value = defaultTitle;
+                localStorage.setItem('poly_notes_title', defaultTitle);
+                localStorage.setItem('poly_notes_content', defaultContent);
+                updatePreview();
+                if (window.polyAudio) polyAudio.playSpring();
+              }
+            });
+          }
+        }, 50);
         break;
+      }
 
       case 'music':
         this.createWindow('Poly Music', '🎵', 340, 220, 560, 360, `
@@ -3439,19 +4647,45 @@ class PolyOS {
         break;
 
       case 'telemetry':
-        this.createWindow('Process Monitor (polyd)', '⚡', 400, 160, 640, 400, `
+        this.createWindow('Process Monitor (polyd)', '⚡', 400, 160, 680, 420, `
           <div style="font-family:'JetBrains Mono', monospace; font-size:11px; height:100%; display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">
+            <!-- ZRAM Summary Banner & Algorithm Switcher -->
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+              <div id="telemetry-zram-summary" style="display:flex; gap:14px; font-size:11px; color:#aaa;">
+                <span>ZRAM Backend: <strong style="color:${this.zram.algorithm === 'zstd' ? '#d175ff' : '#64d2ff'};">${this.zram.algorithm.toUpperCase()}</strong> (${this.zram.ratioStr})</span>
+                <span>Compacted: <strong>${this.zram.comprMb.toFixed(1)} MB</strong> (saved ${this.zram.savingsMb.toFixed(1)} MB)</span>
+              </div>
+              <div style="display:flex; gap:4px;">
+                <button class="seg-btn ${this.zram.algorithm === 'lz4' ? 'active' : ''}" id="proc-algo-lz4" style="padding:2px 8px; font-size:10px;">⚡ LZ4</button>
+                <button class="seg-btn ${this.zram.algorithm === 'zstd' ? 'active' : ''}" id="proc-algo-zstd" style="padding:2px 8px; font-size:10px;">📦 ZSTD</button>
+              </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px; color:#888;">
               <span>PID / APP</span>
               <span>STATE</span>
               <span>CPU WEIGHT</span>
               <span>MEM (ZRAM)</span>
             </div>
-            <div id="telemetry-table" style="display:flex; flex-direction:column; gap:6px;">
+            <div id="telemetry-table" style="display:flex; flex-direction:column; gap:6px; flex:1; overflow-y:auto;">
               <!-- Dynamically populated -->
             </div>
           </div>
         `);
+
+        setTimeout(() => {
+          document.getElementById('proc-algo-lz4')?.addEventListener('click', () => {
+            this.setZramAlgorithm('lz4');
+            document.getElementById('proc-algo-lz4')?.classList.add('active');
+            document.getElementById('proc-algo-zstd')?.classList.remove('active');
+          });
+          document.getElementById('proc-algo-zstd')?.addEventListener('click', () => {
+            this.setZramAlgorithm('zstd');
+            document.getElementById('proc-algo-zstd')?.classList.add('active');
+            document.getElementById('proc-algo-lz4')?.classList.remove('active');
+          });
+          this.updateZramUI();
+        }, 50);
         break;
 
       case 'files':
@@ -3599,7 +4833,11 @@ class PolyOS {
                       this.notifyIsland(`📁 Opening folder: ${name}`);
                     }
                   } else {
-                    this.openQuickLook(name, type, size);
+                    if (type === 'code' || /\.(rs|py|js|ts|html|md)$/i.test(name)) {
+                      this.launchApp('code', name);
+                    } else {
+                      this.openQuickLook(name, type, size);
+                    }
                   }
                 });
               });
@@ -3830,33 +5068,64 @@ class PolyOS {
               <!-- Tab 4: Storage & ZRAM -->
               <div class="settings-content hidden" id="tab-storage" style="display: none;">
                 <div class="settings-section-title">Storage & ZRAM Memory</div>
-                <div class="settings-section-desc">RAM compression and NVMe storage distribution.</div>
+                <div class="settings-section-desc">Dynamic kernel memory compaction (/sys/block/zram0) and NVMe storage.</div>
 
                 <div class="settings-card">
                   <div class="settings-label">
                     <span class="settings-label-title">NVMe Primary Drive (256 GB)</span>
-                    <span class="settings-label-sub">28.4 GB Used • 227.6 GB Available</span>
+                    <span class="settings-label-sub" id="storage-nvme-sub">28.4 GB Used • 227.6 GB Available</span>
                   </div>
                   <div class="storage-bar-container">
-                    <div class="storage-segment storage-sys" title="Poly System (4.2 GB)"></div>
-                    <div class="storage-segment storage-apps" title="Apps & User (12.4 GB)"></div>
-                    <div class="storage-segment storage-zram" title="ZRAM Compressed Cache (1.8 GB)"></div>
-                    <div class="storage-segment storage-free" title="Free Space (227.6 GB)"></div>
+                    <div class="storage-segment storage-sys" style="width:15%;" title="Poly System (4.2 GB)"></div>
+                    <div class="storage-segment storage-apps" style="width:28%;" title="Apps & User (12.4 GB)"></div>
+                    <div class="storage-segment storage-zram" id="storage-bar-zram" style="width:12%;" title="ZRAM Compressed Cache"></div>
+                    <div class="storage-segment storage-free" style="width:45%;" title="Free Space"></div>
                   </div>
                   <div style="display:flex; justify-content:space-between; font-size:11px; color:#aaa; margin-top:8px;">
                     <span>🟣 System: 4.2 GB</span>
                     <span>🔵 Apps: 12.4 GB</span>
-                    <span>🟢 ZRAM (3.2x ratio): 1.8 GB</span>
+                    <span id="storage-zram-label">🟢 ZRAM (${this.zram.ratioStr} ratio, ${this.zram.algorithm.toUpperCase()}): ${this.zram.comprMb.toFixed(1)} MB</span>
                   </div>
                 </div>
 
+                <!-- ZRAM In-Kernel Telemetry & Algorithm Selector Card -->
                 <div class="settings-card" style="margin-top:14px;">
-                  <div class="settings-row">
+                  <div class="settings-row" style="align-items:flex-start;">
                     <div class="settings-label">
-                      <span class="settings-label-title">ZRAM Active Compression</span>
-                      <span class="settings-label-sub">High-efficiency LZ4 in-kernel memory compaction</span>
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="settings-label-title">ZRAM Compression Backend</span>
+                        <span class="zram-badge-live" id="zram-ratio-badge">${this.zram.ratioStr} Ratio</span>
+                      </div>
+                      <span class="settings-label-sub" id="zram-algo-desc">${this.zram.algorithm === 'zstd' ? 'ZSTD: Maximum compaction (4.3x ratio, 1.8ms) with high RAM savings' : 'LZ4: Ultra-low latency (0.4ms) with high real-time throughput'}</span>
                     </div>
-                    <button class="seg-btn active" id="purge-cache-btn" style="padding:6px 14px; font-size:12px;">Free Inactive RAM</button>
+                    <div class="seg-btn-group" id="zram-algo-selector">
+                      <button class="seg-btn ${this.zram.algorithm === 'lz4' ? 'active' : ''}" data-algo="lz4" id="zram-btn-lz4">⚡ LZ4 (Fastest)</button>
+                      <button class="seg-btn ${this.zram.algorithm === 'zstd' ? 'active' : ''}" data-algo="zstd" id="zram-btn-zstd">📦 ZSTD (Max Compaction)</button>
+                    </div>
+                  </div>
+
+                  <!-- Live Kernel mm_stat Metrics Grid -->
+                  <div class="zram-metrics-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08);">
+                    <div class="zram-metric-item">
+                      <div class="metric-title" style="font-size:10px; color:#888; text-transform:uppercase;">Uncompressed Cache</div>
+                      <div class="metric-val" id="zram-orig-val" style="font-size:15px; font-weight:600; color:#fff; font-family:'JetBrains Mono',monospace;">${this.zram.origMb.toFixed(1)} MB</div>
+                      <div class="metric-hint" style="font-size:10px; color:#666;">orig_data_size</div>
+                    </div>
+                    <div class="zram-metric-item">
+                      <div class="metric-title" style="font-size:10px; color:#888; text-transform:uppercase;">Compressed In-RAM</div>
+                      <div class="metric-val text-accent-cyan" id="zram-compr-val" style="font-size:15px; font-weight:600; font-family:'JetBrains Mono',monospace;">${this.zram.comprMb.toFixed(1)} MB</div>
+                      <div class="metric-hint" style="font-size:10px; color:#666;">compr_data_size</div>
+                    </div>
+                    <div class="zram-metric-item">
+                      <div class="metric-title" style="font-size:10px; color:#888; text-transform:uppercase;">RAM Saved (Compacted)</div>
+                      <div class="metric-val text-accent-emerald" id="zram-saved-val" style="font-size:15px; font-weight:600; font-family:'JetBrains Mono',monospace;">${this.zram.savingsMb.toFixed(1)} MB (${this.zram.savingsPercent}%)</div>
+                      <div class="metric-hint" style="font-size:10px; color:#666;" id="zram-device-path">/sys/block/zram0/mm_stat</div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06);">
+                    <span style="font-size:11px; color:#888;">Proactive background task freezing via <code style="color:#64d2ff;">polyd.py</code></span>
+                    <button class="seg-btn active" id="purge-cache-btn" style="padding:5px 12px; font-size:11px;">Free Inactive RAM</button>
                   </div>
                 </div>
               </div>
@@ -3979,6 +5248,23 @@ class PolyOS {
               setTimeout(() => { purgeBtn.textContent = 'Free Inactive RAM'; }, 2000);
             });
           }
+
+          // ZRAM Algorithm Selector
+          const zramBtnLz4 = root.querySelector('#zram-btn-lz4');
+          const zramBtnZstd = root.querySelector('#zram-btn-zstd');
+          if (zramBtnLz4) {
+            zramBtnLz4.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.setZramAlgorithm('lz4');
+            });
+          }
+          if (zramBtnZstd) {
+            zramBtnZstd.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.setZramAlgorithm('zstd');
+            });
+          }
+          this.updateZramUI();
 
           // Check for Updates Button
           const updatesBtn = root.querySelector('#check-updates-btn');
@@ -4138,34 +5424,66 @@ class PolyOS {
         }, 50);
         break;
 
-      case 'code':
-        this.createWindow('Poly Code Studio', '💻', 180, 80, 880, 560, `
-          <div class="code-editor-root" id="code-studio-root" style="display:flex; flex-direction:column; height:100%;">
+      case 'code': {
+        const existingCodeWin = Array.from(this.windows.values()).find(w => w.title === 'Poly Code Studio');
+        if (existingCodeWin) {
+          this.focusWindow(existingCodeWin.id);
+          if (existingCodeWin.isMinimized) this.restoreWindow(existingCodeWin.id);
+          if (initialParam && typeof window.polyCodeStudioSwitchFile === 'function') {
+            window.polyCodeStudioSwitchFile(initialParam);
+          }
+          break;
+        }
+
+        const fileToOpenOnLaunch = initialParam;
+        this.createWindow('Poly Code Studio', '💻', 180, 70, 920, 580, `
+          <div class="code-editor-root" id="code-studio-root" style="display:flex; flex-direction:column; height:100%; position:relative;">
             <div class="code-tabs-bar">
-              <div class="code-tab active" data-file="physics">🦀 physics.rs</div>
-              <div class="code-tab" data-file="polyd">🐍 polyd.py</div>
-              <div class="code-tab" data-file="shell">⚡ shell.js</div>
-              <button id="run-code-btn" style="margin-left:auto; background:var(--accent-green); border:none; color:#000; font-weight:700; font-size:11px; padding:5px 14px; border-radius:6px; cursor:pointer; align-self:center; display:flex; align-items:center; gap:6px;">
-                <span>▶</span> Run Script
-              </button>
-            </div>
-            <div class="code-workspace" style="flex:1; display:flex; overflow:hidden; position:relative;">
-              <div class="code-lines" id="code-line-numbers" style="padding:12px 8px; font-family:'JetBrains Mono',monospace; font-size:11.5px; line-height:1.5; color:#555; background:rgba(0,0,0,0.3); border-right:1px solid rgba(255,255,255,0.06); user-select:none; text-align:right; min-width:34px;">
+              <div class="code-tabs-list" id="code-tabs-list"></div>
+              <button class="code-tab-add" id="code-new-file-btn" title="Create New File (+)">+</button>
+              <div class="code-top-actions">
+                <span class="code-lang-pill" id="code-lang-indicator">🦀 Rust</span>
+                <button id="run-code-btn" title="Execute Script (Ctrl+Enter)">
+                  <span>▶</span> Run Script
+                </button>
               </div>
-              <textarea class="code-textarea" id="code-editor-text" spellcheck="false" style="flex:1; background:transparent; border:none; outline:none; color:#eee; font-family:'JetBrains Mono',monospace; font-size:11.5px; line-height:1.5; padding:12px; resize:none; overflow-y:auto; tab-size:2;"></textarea>
+            </div>
+            <div class="code-workspace">
+              <div class="code-lines" id="code-line-numbers"></div>
+              <div class="code-editor-wrapper">
+                <pre class="code-highlight-layer" id="code-highlight-layer" aria-hidden="true"><code id="code-highlight-content"></code></pre>
+                <textarea class="code-textarea" id="code-editor-text" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+              </div>
+            </div>
+
+            <!-- Bottom Left Status Bar Just Above Console -->
+            <div class="code-status-bar" id="code-status-bar">
+              <div class="code-status-left">
+                <span class="code-cursor-pill" id="code-cursor-pos">Ln 1, Col 1</span>
+                <span class="code-encoding-pill">UTF-8</span>
+                <span class="code-indent-pill">Spaces: 2</span>
+              </div>
+              <div class="code-status-right">
+                <span id="code-doc-stats">Ready</span>
+              </div>
             </div>
             
             <!-- Interactive Console Output Drawer -->
-            <div class="code-console-drawer">
+            <div class="code-console-drawer" id="code-console-drawer">
               <div class="code-console-header">
-                <span>Output Console & Sandbox Runner</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="cursor:pointer; display:flex; align-items:center; gap:5px;" id="code-drawer-toggle" title="Toggle Console Drawer">
+                    <span id="code-drawer-chevron">▼</span> Output Console & Sandbox
+                  </span>
+                  <span class="code-timing-badge" id="code-timing-badge">⏱️ 0.0ms</span>
+                </div>
                 <div style="display:flex; gap:10px; align-items:center;">
-                  <span id="code-status-pill" style="font-size:10px; color:#30d158;">Ready</span>
-                  <button id="clear-code-console" style="background:transparent; border:none; color:#888; cursor:pointer; font-size:11px;">Clear</button>
+                  <span id="code-status-pill" style="font-size:10px; color:#30d158; font-weight:600;">Ready</span>
+                  <button id="clear-code-console" style="background:transparent; border:none; color:#888; cursor:pointer; font-size:11px; padding:2px 6px; border-radius:4px;">Clear</button>
                 </div>
               </div>
-              <div class="code-console-body" id="code-console-body">Poly Code Studio v1.0 Sandbox Initialized.
-Press 'Run Script' to execute the active file.</div>
+              <div class="code-console-body" id="code-console-body">Poly Code Studio v2.0 (Monaco Engine) Sandbox Initialized.
+Press 'Run Script' or press Ctrl+Enter to execute.</div>
             </div>
           </div>
         `);
@@ -4174,8 +5492,11 @@ Press 'Run Script' to execute the active file.</div>
           const root = document.getElementById('code-studio-root');
           if (!root) return;
 
-          const fileBuffers = {
-            'physics': `// Poly OS Spring Physics Engine (Rust 2024 Edition)
+          const defaultFiles = {
+            'physics.rs': {
+              lang: 'rust',
+              icon: '🦀',
+              content: `// Poly OS Spring Physics Engine (Rust 2024 Edition)
 pub struct Spring1D {
     pub current: f32,
     pub target: f32,
@@ -4208,8 +5529,12 @@ fn main() {
         spring.update(1.0 / 120.0);
         println!("Frame {}: current = {:.2}, vel = {:.2}", frame, spring.current, spring.velocity);
     }
-}`,
-            'polyd': `# Poly OS Background Process Lifecycle Daemon
+}`
+            },
+            'polyd.py': {
+              lang: 'python',
+              icon: '🐍',
+              content: `# Poly OS Background Process Lifecycle Daemon
 # Utilizes Linux cgroups v2 freezer for zero-battery background drain
 
 import time
@@ -4228,9 +5553,13 @@ def thaw_process(pid: int, app_name: str):
 
 if __name__ == "__main__":
     print("Poly Daemon (polyd) active at 120Hz VSync loop.")
-    freeze_process(1042, "Poly Browser")`,
-            'shell': `// Poly Shell Dynamic Island & Telemetry Routine
-console.log("Poly Shell runtime loaded.");
+    freeze_process(1042, "Poly Browser")`
+            },
+            'shell.js': {
+              lang: 'javascript',
+              icon: '⚡',
+              content: `// Poly Shell Dynamic Island & Telemetry Routine
+console.log("Poly Shell runtime loaded at 120 FPS.");
 
 const metrics = {
   cpu: 14,
@@ -4241,78 +5570,458 @@ const metrics = {
 
 console.log("Telemetry Sync Status:", JSON.stringify(metrics, null, 2));
 console.log("Aero Snapping active. Mass-spring physics initialized.");`
+            },
+            'index.html': {
+              lang: 'html',
+              icon: '🌐',
+              content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Poly OS Web View</title>
+  <style>
+    body { background: #0b0f19; color: #38bdf8; font-family: monospace; padding: 20px; }
+    h1 { color: #58a6ff; }
+  </style>
+</head>
+<body>
+  <h1>⚡ Poly OS Web Interface</h1>
+  <p>Hardware-accelerated WebGL compositing active.</p>
+</body>
+</html>`
+            },
+            'notes.md': {
+              lang: 'markdown',
+              icon: '📝',
+              content: `# Poly OS Developer Notes
+> High-performance microkernel architecture with fluid gestures.
+
+## 🚀 Key Modules
+- [x] Monaco & CodeMirror-class syntax engine
+- [x] Synchronized line numbers gutter
+- [x] Multi-tab buffer persistence
+- [ ] Universal command palette spotlight`
+            }
           };
 
-          let currentFile = 'physics';
+          const getFileMeta = (name) => {
+            const ext = name.split('.').pop().toLowerCase();
+            if (ext === 'rs') return { lang: 'rust', icon: '🦀', label: 'Rust' };
+            if (ext === 'py') return { lang: 'python', icon: '🐍', label: 'Python' };
+            if (ext === 'js' || ext === 'ts') return { lang: 'javascript', icon: '⚡', label: 'JavaScript' };
+            if (ext === 'html' || ext === 'htm') return { lang: 'html', icon: '🌐', label: 'HTML' };
+            if (ext === 'md') return { lang: 'markdown', icon: '📝', label: 'Markdown' };
+            if (ext === 'json') return { lang: 'javascript', icon: '⚙️', label: 'JSON' };
+            if (ext === 'css') return { lang: 'html', icon: '🎨', label: 'CSS' };
+            return { lang: 'javascript', icon: '📄', label: 'Text' };
+          };
+
+          let files = defaultFiles;
+          try {
+            const saved = localStorage.getItem('poly_code_files_v3');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                files = parsed;
+              }
+            }
+          } catch (e) {}
+
+          let currentFile = fileToOpenOnLaunch || localStorage.getItem('poly_code_active_file');
+          if (fileToOpenOnLaunch) {
+            if (!files[fileToOpenOnLaunch]) {
+              const meta = getFileMeta(fileToOpenOnLaunch);
+              files[fileToOpenOnLaunch] = {
+                lang: meta.lang,
+                icon: meta.icon,
+                content: `// ${fileToOpenOnLaunch} loaded from Virtual File System\n`
+              };
+            }
+            currentFile = fileToOpenOnLaunch;
+          } else if (!files[currentFile]) {
+            currentFile = Object.keys(files)[0] || 'physics.rs';
+          }
+
+          const tabsList = root.querySelector('#code-tabs-list');
           const textarea = root.querySelector('#code-editor-text');
+          const highlightLayer = root.querySelector('#code-highlight-layer');
+          const highlightCodeEl = root.querySelector('#code-highlight-content');
           const linesBox = root.querySelector('#code-line-numbers');
           const consoleBody = root.querySelector('#code-console-body');
           const statusPill = root.querySelector('#code-status-pill');
+          const timingBadge = root.querySelector('#code-timing-badge');
+          const langIndicator = root.querySelector('#code-lang-indicator');
+          const cursorPos = root.querySelector('#code-cursor-pos');
           const runBtn = root.querySelector('#run-code-btn');
           const clearBtn = root.querySelector('#clear-code-console');
+          const newFileBtn = root.querySelector('#code-new-file-btn');
+          const drawerToggle = root.querySelector('#code-drawer-toggle');
+          const drawerChevron = root.querySelector('#code-drawer-chevron');
+          const consoleDrawer = root.querySelector('#code-console-drawer');
+
+          const saveBuffers = () => {
+            try {
+              localStorage.setItem('poly_code_files_v3', JSON.stringify(files));
+              localStorage.setItem('poly_code_active_file', currentFile);
+            } catch (e) {}
+          };
 
           const updateLines = () => {
             if (!textarea || !linesBox) return;
-            const lineCount = textarea.value.split('\n').length;
+            const text = textarea.value;
+            const lineCount = text.split('\n').length;
+            const cursorIdx = textarea.selectionStart || 0;
+            const activeLine = text.substring(0, cursorIdx).split('\n').length;
+
             let linesHtml = '';
             for (let i = 1; i <= lineCount; i++) {
-              linesHtml += `${i}<br>`;
+              linesHtml += `<div class="code-gutter-line ${i === activeLine ? 'active' : ''}">${i}</div>`;
             }
             linesBox.innerHTML = linesHtml;
+
+            // Update Ln & Col indicator
+            const lastNl = text.lastIndexOf('\n', cursorIdx - 1);
+            const col = cursorIdx - (lastNl === -1 ? 0 : lastNl + 1) + 1;
+            if (cursorPos) {
+              cursorPos.textContent = `Ln ${activeLine}, Col ${col}`;
+            }
+            const docStats = root.querySelector('#code-doc-stats');
+            if (docStats) {
+              docStats.textContent = `${lineCount} lines, ${text.length} chars`;
+            }
           };
 
-          const switchFile = (key) => {
-            currentFile = key;
-            if (textarea) textarea.value = fileBuffers[key] || '';
+          const renderHighlight = () => {
+            if (!textarea || !highlightCodeEl) return;
+            const code = textarea.value;
+            const meta = files[currentFile] || getFileMeta(currentFile);
+            const highlighted = this.highlightCode(code, meta.lang || 'javascript');
+            highlightCodeEl.innerHTML = highlighted + (code.endsWith('\n') ? ' ' : '');
             updateLines();
           };
 
-          switchFile('physics');
+          const syncScroll = () => {
+            if (!textarea) return;
+            if (highlightLayer) {
+              highlightLayer.scrollTop = textarea.scrollTop;
+              highlightLayer.scrollLeft = textarea.scrollLeft;
+            }
+            if (linesBox) {
+              linesBox.scrollTop = textarea.scrollTop;
+            }
+          };
+
+          textarea.addEventListener('scroll', syncScroll);
+
+          const renderTabs = () => {
+            if (!tabsList) return;
+            tabsList.innerHTML = '';
+            const fileNames = Object.keys(files);
+
+            fileNames.forEach(fn => {
+              const fileObj = files[fn];
+              const meta = getFileMeta(fn);
+              const tab = document.createElement('div');
+              tab.className = `code-tab ${fn === currentFile ? 'active' : ''}`;
+              tab.dataset.file = fn;
+
+              const titleSpan = document.createElement('span');
+              titleSpan.textContent = `${fileObj.icon || meta.icon} ${fn}`;
+              tab.appendChild(titleSpan);
+
+              if (fileNames.length > 1) {
+                const closeBtn = document.createElement('span');
+                closeBtn.className = 'code-tab-close';
+                closeBtn.textContent = '×';
+                closeBtn.title = `Close ${fn}`;
+                closeBtn.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  closeFile(fn);
+                });
+                tab.appendChild(closeBtn);
+              }
+
+              tab.addEventListener('click', () => switchFile(fn));
+              tabsList.appendChild(tab);
+            });
+          };
+
+          const switchFile = (fn) => {
+            if (!files[fn]) return;
+            if (currentFile && files[currentFile] && textarea) {
+              files[currentFile].content = textarea.value;
+            }
+            currentFile = fn;
+            const meta = getFileMeta(fn);
+            if (!files[fn].lang) files[fn].lang = meta.lang;
+            if (!files[fn].icon) files[fn].icon = meta.icon;
+
+            if (langIndicator) {
+              langIndicator.textContent = `${meta.icon} ${meta.label}`;
+            }
+
+            if (textarea) {
+              textarea.value = files[fn].content || '';
+              textarea.focus();
+            }
+
+            renderTabs();
+            renderHighlight();
+            syncScroll();
+            saveBuffers();
+          };
+
+          window.polyCodeStudioSwitchFile = (fn) => {
+            if (!files[fn]) {
+              const meta = getFileMeta(fn);
+              files[fn] = {
+                lang: meta.lang,
+                icon: meta.icon,
+                content: `// ${fn} loaded from Virtual File System\n`
+              };
+            }
+            switchFile(fn);
+            this.notifyIsland(`💻 Loaded ${fn} in Code Studio`);
+          };
+
+          const closeFile = (fn) => {
+            if (Object.keys(files).length <= 1) return;
+            delete files[fn];
+            if (currentFile === fn) {
+              currentFile = Object.keys(files)[0];
+            }
+            switchFile(currentFile);
+          };
+
+          // Auto-close pairs & Tab indentation conveniences
+          const pairs = {
+            '(': ')',
+            '[': ']',
+            '{': '}',
+            '"': '"',
+            "'": "'",
+            '`': '`'
+          };
+          const closers = [')', ']', '}', '"', "'", '`'];
+
+          textarea.addEventListener('keydown', (e) => {
+            // Ctrl+Enter or Cmd+Enter -> Run
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault();
+              if (runBtn) runBtn.click();
+              return;
+            }
+
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const val = textarea.value;
+
+            // Tab key indentation
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              if (e.shiftKey) {
+                // Outdent
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                if (val.substr(lineStart, 2) === '  ') {
+                  textarea.value = val.substring(0, lineStart) + val.substring(lineStart + 2);
+                  textarea.selectionStart = Math.max(lineStart, start - 2);
+                  textarea.selectionEnd = Math.max(lineStart, end - 2);
+                  textarea.dispatchEvent(new Event('input'));
+                }
+              } else {
+                // Indent 2 spaces
+                textarea.value = val.substring(0, start) + '  ' + val.substring(end);
+                textarea.selectionStart = textarea.selectionEnd = start + 2;
+                textarea.dispatchEvent(new Event('input'));
+              }
+              return;
+            }
+
+            // Auto-close opening bracket or quote
+            if (pairs[e.key]) {
+              e.preventDefault();
+              const openChar = e.key;
+              const closeChar = pairs[openChar];
+              const selected = val.substring(start, end);
+              textarea.value = val.substring(0, start) + openChar + selected + closeChar + val.substring(end);
+              textarea.selectionStart = start + 1;
+              textarea.selectionEnd = end + 1;
+              textarea.dispatchEvent(new Event('input'));
+              return;
+            }
+
+            // Skip over closing bracket if next char is identical
+            if (closers.includes(e.key) && start === end && val[start] === e.key) {
+              e.preventDefault();
+              textarea.selectionStart = textarea.selectionEnd = start + 1;
+              updateLines();
+              return;
+            }
+
+            // Backspace empty pair
+            if (e.key === 'Backspace' && start === end && start > 0) {
+              const prev = val[start - 1];
+              const next = val[start];
+              if (pairs[prev] && pairs[prev] === next) {
+                e.preventDefault();
+                textarea.value = val.substring(0, start - 1) + val.substring(start + 1);
+                textarea.selectionStart = textarea.selectionEnd = start - 1;
+                textarea.dispatchEvent(new Event('input'));
+                return;
+              }
+            }
+          });
 
           textarea.addEventListener('input', () => {
-            fileBuffers[currentFile] = textarea.value;
-            updateLines();
+            if (files[currentFile]) {
+              files[currentFile].content = textarea.value;
+            }
+            renderHighlight();
+            saveBuffers();
           });
 
-          root.querySelectorAll('.code-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-              root.querySelectorAll('.code-tab').forEach(t => t.classList.remove('active'));
-              tab.classList.add('active');
-              switchFile(tab.dataset.file);
+          textarea.addEventListener('click', updateLines);
+          textarea.addEventListener('keyup', (e) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+              updateLines();
+            }
+          });
+
+          // Drawer toggle
+          if (drawerToggle && consoleDrawer) {
+            drawerToggle.addEventListener('click', () => {
+              const isCollapsed = consoleDrawer.classList.toggle('collapsed');
+              if (drawerChevron) drawerChevron.textContent = isCollapsed ? '▲' : '▼';
             });
-          });
+          }
 
+          // Clear console
           if (clearBtn) {
             clearBtn.addEventListener('click', () => {
               if (consoleBody) consoleBody.textContent = '';
             });
           }
 
+          // New File creation modal
+          if (newFileBtn) {
+            newFileBtn.addEventListener('click', () => {
+              const existingModal = root.querySelector('#code-new-file-modal');
+              if (existingModal) existingModal.remove();
+
+              const overlay = document.createElement('div');
+              overlay.className = 'code-modal-overlay';
+              overlay.id = 'code-new-file-modal';
+              overlay.innerHTML = `
+                <div class="code-modal-card">
+                  <h4>📄 Create New File</h4>
+                  <input type="text" class="code-modal-input" id="new-file-name-input" placeholder="e.g. app.js, worker.py, ui.html" value="script.js">
+                  <div class="code-modal-btns">
+                    <button class="code-modal-btn cancel" id="cancel-new-file">Cancel</button>
+                    <button class="code-modal-btn confirm" id="confirm-new-file">Create</button>
+                  </div>
+                </div>
+              `;
+              root.appendChild(overlay);
+
+              const input = overlay.querySelector('#new-file-name-input');
+              const cancelBtn = overlay.querySelector('#cancel-new-file');
+              const confirmBtn = overlay.querySelector('#confirm-new-file');
+
+              input.focus();
+              input.select();
+
+              const closeModal = () => overlay.remove();
+
+              const doCreate = () => {
+                let name = input.value.trim();
+                if (!name) name = 'untitled.js';
+                if (!name.includes('.')) name += '.js';
+
+                if (!files[name]) {
+                  const meta = getFileMeta(name);
+                  let initialContent = `// ${name}\nconsole.log("Initialized ${name}");\n`;
+                  if (meta.lang === 'rust') {
+                    initialContent = `// ${name} (Rust Module)\npub fn run() {\n    println!("Hello from ${name}!");\n}\n`;
+                  } else if (meta.lang === 'python') {
+                    initialContent = `# ${name} (Python Module)\nprint("Hello from ${name}!")\n`;
+                  } else if (meta.lang === 'html') {
+                    initialContent = `<!DOCTYPE html>\n<html>\n<head>\n  <title>${name}</title>\n</head>\n<body>\n  <h2>${name}</h2>\n</body>\n</html>\n`;
+                  } else if (meta.lang === 'markdown') {
+                    initialContent = `# ${name}\n\nStart writing notes here...\n`;
+                  }
+
+                  files[name] = {
+                    lang: meta.lang,
+                    icon: meta.icon,
+                    content: initialContent
+                  };
+                }
+
+                closeModal();
+                switchFile(name);
+                this.notifyIsland(`📄 Created ${name}`);
+                polyAudio.playClick();
+              };
+
+              cancelBtn.addEventListener('click', closeModal);
+              confirmBtn.addEventListener('click', doCreate);
+              input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') doCreate();
+                if (e.key === 'Escape') closeModal();
+              });
+            });
+          }
+
+          // Initial load
+          switchFile(currentFile);
+
+          // Run Script Action
           if (runBtn) {
             runBtn.addEventListener('click', () => {
+              const meta = getFileMeta(currentFile);
               if (statusPill) {
-                statusPill.textContent = 'Compiling...';
+                statusPill.textContent = 'Running...';
                 statusPill.style.color = '#ff9f0a';
               }
 
+              const t0 = performance.now();
+
               setTimeout(() => {
                 const now = new Date().toLocaleTimeString();
-                if (currentFile === 'shell') {
+                const code = textarea.value;
+                let hasError = false;
+
+                if (meta.lang === 'javascript') {
                   let capturedLogs = [];
                   const originalLog = console.log;
-                  console.log = (...args) => capturedLogs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+                  const originalInfo = console.info;
+                  const originalWarn = console.warn;
+                  const originalError = console.error;
+
+                  console.log = (...args) => capturedLogs.push('[LOG] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+                  console.info = (...args) => capturedLogs.push('[INFO] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+                  console.warn = (...args) => capturedLogs.push('[WARN] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+                  console.error = (...args) => capturedLogs.push('[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+
                   try {
-                    new Function(textarea.value)();
-                    consoleBody.textContent += `\n[${now}] === Executed shell.js in Sandbox ===\n` + capturedLogs.join('\n');
-                  } catch(err) {
-                    consoleBody.textContent += `\n[${now}] [Runtime Error]: ${err.message}`;
+                    const result = new Function(code)();
+                    const evalOutput = capturedLogs.length > 0 ? capturedLogs.join('\n') : '(Script finished with no console output)';
+                    const returnStr = result !== undefined ? `\n[Return Value]: ${JSON.stringify(result)}` : '';
+                    consoleBody.textContent += `\n[${now}] === Executed ${currentFile} (Isolated Sandbox) ===\n${evalOutput}${returnStr}\n`;
+                  } catch (err) {
+                    hasError = true;
+                    consoleBody.textContent += `\n[${now}] [Runtime Error in ${currentFile}]: ${err.message}\n${err.stack || ''}\n`;
                   } finally {
                     console.log = originalLog;
+                    console.info = originalInfo;
+                    console.warn = originalWarn;
+                    console.error = originalError;
                   }
-                } else if (currentFile === 'physics') {
-                  consoleBody.textContent += `\n[${now}] [rustc 1.80.0] Building physics.rs with musl-target (120Hz optimization)...
-   Compiling poly-physics v0.9.4 (/workspace/poly-compositor)
-    Finished release [optimized] target(s) in 0.018s
+                } else if (meta.lang === 'rust') {
+                  consoleBody.textContent += `\n[${now}] [rustc 1.82.0-nightly (poly-musl)] Compiling ${currentFile}...
+   Compiling poly-physics v0.9.8 (/workspace/poly-compositor)
+    Opt-Level: 3 (120Hz VSync target)
+    Finished release [optimized] target(s) in 0.016s
 Running \`target/release/physics\`
 Spring initialized. Simulating 120Hz frames...
 Frame 1: current = 14.20, vel = 170.40
@@ -4323,27 +6032,73 @@ Frame 5: current = 87.82, vel = 191.04
 Frame 6: current = 98.42, vel = 127.20
 Frame 7: current = 103.55, vel = 61.56
 Frame 8: current = 104.28, vel = 8.76
-Spring reached target in 8 frames (66.6ms)!`;
-                } else if (currentFile === 'polyd') {
-                  consoleBody.textContent += `\n[${now}] [python3 polyd.py]
+Spring reached target in 8 frames (66.6ms)!
+Process finished with exit code 0.`;
+                } else if (meta.lang === 'python') {
+                  consoleBody.textContent += `\n[${now}] [python3 ${currentFile}] (Python 3.12.3 PolyOS Runtime)
 Poly Daemon (polyd) active at 120Hz VSync loop.
 [polyd] Inactivity threshold reached for Poly Browser (PID: 1042)
 [polyd] Writing '1' to /sys/fs/cgroup/poly/cgroup.freeze...
-[polyd] Process 1042 successfully FROZEN. CPU weight -> 0%. ZRAM pool locked.`;
+[polyd] Process 1042 successfully FROZEN. CPU weight -> 0%. ZRAM pool locked.
+[polyd] 4 active cgroup subtrees monitored [OK]
+Process finished with exit code 0.`;
+                } else if (meta.lang === 'html') {
+                  const parser = new DOMParser();
+                  const doc = parser.parseFromString(code, 'text/html');
+                  const errorNode = doc.querySelector('parsererror');
+                  if (errorNode) {
+                    hasError = true;
+                    consoleBody.textContent += `\n[${now}] [HTML Syntax Error]: ${errorNode.textContent}\n`;
+                  } else {
+                    const tagCount = doc.querySelectorAll('*').length;
+                    consoleBody.textContent += `\n[${now}] [HTML5 Sandbox Validator] ${currentFile}:
+✓ Document Title: "${doc.title || 'Untitled'}"
+✓ DOM Elements: ${tagCount} tags parsed
+✓ Valid HTML5 Structure: Confirmed
+✓ Sandbox Render Test: Passed without layout violations.`;
+                  }
+                } else if (meta.lang === 'markdown') {
+                  const words = code.trim().split(/\s+/).filter(Boolean).length;
+                  const chars = code.length;
+                  const lines = code.split('\n').length;
+                  const taskCount = (code.match(/\[([ xX])\]/g) || []).length;
+                  const doneTasks = (code.match(/\[([xX])\]/g) || []).length;
+                  consoleBody.textContent += `\n[${now}] [Poly Markdown Engine] Analyzed ${currentFile}:
+✓ Document Length: ${lines} lines, ${words} words, ${chars} chars
+✓ Checklists: ${doneTasks}/${taskCount} tasks completed
+✓ Structure: Markdown AST validated and ready for Live Preview.`;
+                } else {
+                  consoleBody.textContent += `\n[${now}] Executed ${currentFile} (${code.length} bytes processed). [OK]`;
+                }
+
+                const elapsed = Math.max(0.5, performance.now() - t0).toFixed(1);
+                if (timingBadge) {
+                  timingBadge.textContent = `⏱️ ${elapsed}ms`;
                 }
 
                 if (statusPill) {
-                  statusPill.textContent = 'Success (0 Errors)';
-                  statusPill.style.color = '#30d158';
+                  if (hasError) {
+                    statusPill.textContent = 'Runtime Error';
+                    statusPill.style.color = '#ff453a';
+                  } else {
+                    statusPill.textContent = 'Success (0 Errors)';
+                    statusPill.style.color = '#30d158';
+                  }
                 }
+
                 consoleBody.scrollTop = consoleBody.scrollHeight;
-                this.notifyIsland(`💻 ${currentFile} executed successfully!`);
-                polyAudio.playSuccess();
-              }, 120);
+                if (!hasError) {
+                  this.notifyIsland(`💻 ${currentFile} executed (${elapsed}ms)!`);
+                  polyAudio.playSuccess();
+                } else {
+                  this.notifyIsland(`⚠️ Error running ${currentFile}`);
+                }
+              }, 70);
             });
           }
         }, 50);
         break;
+      }
 
       case 'canvas':
         this.createWindow('Vector Canvas', '🎨', 240, 110, 780, 520, `
@@ -4783,8 +6538,6 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
   enterImmersiveMode(id) {
     this.immersiveWindowId = id;
     document.body.classList.add('immersive-mode');
-    document.body.classList.remove('dock-pos-bottom', 'dock-pos-left', 'dock-pos-right');
-    document.body.classList.add(`dock-pos-${this.dockPos}`);
     const topBar = document.getElementById('top-bar');
     const dockContainer = document.getElementById('dock-container');
     if (topBar) topBar.classList.remove('revealed');
@@ -4870,43 +6623,17 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
         }, 250);
       }
 
-      // 2. Dock edge reveal: cursor near dock edge
-      if (this.dockPos === 'bottom') {
-        if (e.clientY >= window.innerHeight - 12) {
-          clearTimeout(dockTimeout);
-          if (dockContainer) dockContainer.classList.add('revealed');
-        } else if (e.clientY < window.innerHeight - 80 && !e.target.closest('#dock-container')) {
-          clearTimeout(dockTimeout);
-          dockTimeout = setTimeout(() => {
-            if (dockContainer && !dockContainer.matches(':hover')) {
-              dockContainer.classList.remove('revealed');
-            }
-          }, 250);
-        }
-      } else if (this.dockPos === 'left') {
-        if (e.clientX <= 12) {
-          clearTimeout(dockTimeout);
-          if (dockContainer) dockContainer.classList.add('revealed');
-        } else if (e.clientX > 80 && !e.target.closest('#dock-container')) {
-          clearTimeout(dockTimeout);
-          dockTimeout = setTimeout(() => {
-            if (dockContainer && !dockContainer.matches(':hover')) {
-              dockContainer.classList.remove('revealed');
-            }
-          }, 250);
-        }
-      } else if (this.dockPos === 'right') {
-        if (e.clientX >= window.innerWidth - 12) {
-          clearTimeout(dockTimeout);
-          if (dockContainer) dockContainer.classList.add('revealed');
-        } else if (e.clientX < window.innerWidth - 80 && !e.target.closest('#dock-container')) {
-          clearTimeout(dockTimeout);
-          dockTimeout = setTimeout(() => {
-            if (dockContainer && !dockContainer.matches(':hover')) {
-              dockContainer.classList.remove('revealed');
-            }
-          }, 250);
-        }
+      // 2. Dock edge reveal: cursor near bottom dock edge
+      if (e.clientY >= window.innerHeight - 12) {
+        clearTimeout(dockTimeout);
+        if (dockContainer) dockContainer.classList.add('revealed');
+      } else if (e.clientY < window.innerHeight - 80 && !e.target.closest('#dock-container')) {
+        clearTimeout(dockTimeout);
+        dockTimeout = setTimeout(() => {
+          if (dockContainer && !dockContainer.matches(':hover')) {
+            dockContainer.classList.remove('revealed');
+          }
+        }, 250);
       }
     });
   }
@@ -4945,6 +6672,7 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
       }
     }
     win.applyTransform();
+    this.closeSnapAssist();
     this.exitImmersiveMode();
     polyAudio.playSpring();
     this.notifyIsland(`🗗 Restored ${win.title}`);
@@ -4963,39 +6691,40 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
   getWorkspaceBounds() {
     const screenW = window.innerWidth;
     const screenH = window.innerHeight;
-    const topBar = 38;
-    const outerMargin = 16;
-    const innerGap = 16;
+    const topBarEl = document.getElementById('top-bar');
+    const topBarH = (topBarEl && !document.body.classList.contains('immersive-mode')) ? topBarEl.offsetHeight : 40;
+    const outerMargin = 8;
+    const innerGap = 6;
+    const bottomGap = 4;
 
-    // Strict 16px clearance from screen edges, top status bar, and bottom dock
     let dockOccupiedBottom = 0;
-    let dockOccupiedLeft = 0;
-    let dockOccupiedRight = 0;
-
     const dockEl = document.getElementById('dock') || document.getElementById('dock-container');
     if (dockEl && !dockEl.classList.contains('hidden') && !document.body.classList.contains('immersive-mode')) {
       const rect = dockEl.getBoundingClientRect();
-      if (this.dockPos === 'bottom') {
-        dockOccupiedBottom = Math.max(0, screenH - rect.top);
-      } else if (this.dockPos === 'left') {
-        dockOccupiedLeft = Math.max(0, rect.right);
-      } else if (this.dockPos === 'right') {
-        dockOccupiedRight = Math.max(0, screenW - rect.left);
-      }
+      dockOccupiedBottom = Math.max(0, screenH - rect.top);
     } else {
-      if (this.dockPos === 'bottom') {
-        dockOccupiedBottom = (this.dockMode === 'taskbar') ? 56 : 76;
-      } else if (this.dockPos === 'left' || this.dockPos === 'right') {
-        dockOccupiedLeft = 76;
-      }
+      dockOccupiedBottom = (this.dockMode === 'taskbar') ? 52 : 68;
     }
 
-    const availX = outerMargin + dockOccupiedLeft;
-    const availY = topBar + outerMargin;
-    const availW = screenW - (outerMargin * 2) - dockOccupiedLeft - dockOccupiedRight;
-    const availH = screenH - topBar - outerMargin - dockOccupiedBottom - outerMargin;
+    const availX = outerMargin;
+    const availY = 0; // Flush with upper taskbar (0px gap!)
+    const availW = screenW - (outerMargin * 2);
+    const availH = (screenH - topBarH) - dockOccupiedBottom - bottomGap;
+    const screenAvailY = topBarH + availY;
 
-    return { availX, availY, availW, availH, screenW, screenH, outerMargin, innerGap, gap: innerGap };
+    return { 
+      availX, 
+      availY, 
+      availW, 
+      availH, 
+      screenW, 
+      screenH, 
+      topBarH, 
+      screenAvailY, 
+      outerMargin, 
+      innerGap, 
+      gap: innerGap 
+    };
   }
 
   checkSnapZones(mouseX, mouseY) {
@@ -5006,7 +6735,7 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
 
     let zone = null;
     let gx = b.availX;
-    let gy = b.availY;
+    let gy = b.screenAvailY;
     let gw = b.availW;
     let gh = b.availH;
 
@@ -5016,13 +6745,25 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
     if (mouseX <= margin && mouseY <= corner + 38) {
       zone = 'top-left';
       gx = b.availX;
-      gy = b.availY;
+      gy = b.screenAvailY;
       gw = colW;
       gh = rowH;
     } else if (mouseX >= b.screenW - margin && mouseY <= corner + 38) {
       zone = 'top-right';
       gx = b.availX + colW + b.innerGap;
-      gy = b.availY;
+      gy = b.screenAvailY;
+      gw = colW;
+      gh = rowH;
+    } else if (mouseX <= margin && mouseY >= b.screenH - corner - 50) {
+      zone = 'bottom-left';
+      gx = b.availX;
+      gy = b.screenAvailY + rowH + b.innerGap;
+      gw = colW;
+      gh = rowH;
+    } else if (mouseX >= b.screenW - margin && mouseY >= b.screenH - corner - 50) {
+      zone = 'bottom-right';
+      gx = b.availX + colW + b.innerGap;
+      gy = b.screenAvailY + rowH + b.innerGap;
       gw = colW;
       gh = rowH;
     } else if (mouseY <= 42) {
@@ -5034,13 +6775,13 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
     } else if (mouseX <= margin) {
       zone = 'left-half';
       gx = b.availX;
-      gy = b.availY;
+      gy = b.screenAvailY;
       gw = colW;
       gh = b.availH;
     } else if (mouseX >= b.screenW - margin) {
       zone = 'right-half';
       gx = b.availX + colW + b.innerGap;
-      gy = b.availY;
+      gy = b.screenAvailY;
       gw = colW;
       gh = b.availH;
     }
@@ -5070,9 +6811,15 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
     }
   }
 
-  applySnap(id, zone) {
+  applySnap(id, zone, triggerAssist = true) {
     const win = this.windows.get(id);
     if (!win) return;
+
+    // Normalize zone aliases (support 'left', 'right', 'top', 'maximize')
+    if (zone === 'left') zone = 'left-half';
+    if (zone === 'right') zone = 'right-half';
+    if (zone === 'top') zone = 'maximize';
+
     const b = this.getWorkspaceBounds();
 
     if (!win.isMaximized && !win.snapZone) {
@@ -5128,6 +6875,16 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
         win.isMaximized = false;
         if (win.element) {
           win.element.classList.remove('maximized');
+          win.element.style.position = 'absolute';
+          win.element.style.top = '';
+          win.element.style.left = '';
+          win.element.style.right = '';
+          win.element.style.bottom = '';
+          win.element.style.borderRadius = '';
+          win.element.style.border = '';
+          win.element.style.boxShadow = '';
+          win.element.style.margin = '';
+          win.element.style.zIndex = '100';
           const maxBtn = win.element.querySelector('.btn-max');
           if (maxBtn) {
             maxBtn.title = "Aero Maximize / Full Screen";
@@ -5157,15 +6914,23 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
         win.springY.setTarget(b.availY);
         win.springW.setTarget(colW);
         win.springH.setTarget(b.availH);
-        this.notifyIsland('🪟 Left Split Snap (16px Margin & Gap)');
-        setTimeout(() => this.triggerSnapAssist('right-half', win.id), 120);
+        this.notifyIsland('🪟 Left Split Snap');
+        if (triggerAssist) {
+          setTimeout(() => this.triggerSnapAssist('right-half', win.id), 120);
+        } else {
+          this.closeSnapAssist();
+        }
       } else if (zone === 'right-half') {
         win.springX.setTarget(b.availX + colW + b.innerGap);
         win.springY.setTarget(b.availY);
         win.springW.setTarget(colW);
         win.springH.setTarget(b.availH);
-        this.notifyIsland('🪟 Right Split Snap (16px Margin & Gap)');
-        setTimeout(() => this.triggerSnapAssist('left-half', win.id), 120);
+        this.notifyIsland('🪟 Right Split Snap');
+        if (triggerAssist) {
+          setTimeout(() => this.triggerSnapAssist('left-half', win.id), 120);
+        } else {
+          this.closeSnapAssist();
+        }
       } else if (zone === 'top-left') {
         this.closeSnapAssist();
         win.springX.setTarget(b.availX);
@@ -5292,7 +7057,7 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
           frozenCount++;
           w.isFrozen = true;
           w.element.classList.add('frozen');
-          ramUsage += 12; // ZRAM compressed!
+          ramUsage += (this.zram.algorithm === 'zstd' ? 9 : 13); // ZRAM compressed!
         } else {
           activeCount++;
           w.isFrozen = false;
@@ -5308,7 +7073,7 @@ Poly Daemon (polyd) active at 120Hz VSync loop.
             <span>${w.id + 100} • ${w.title.substring(0, 16)}</span>
             <span style="color:${w.isFrozen ? '#64d2ff' : '#30d158'}">${w.isFrozen ? 'FROZEN' : (hasLease ? 'LEASE' : 'ACTIVE')}</span>
             <span>${isCurrentActive ? 100 : (w.isFrozen ? 0 : 10)}</span>
-            <span>${w.isFrozen ? '12 MB (zstd)' : '42 MB'}</span>
+            <span>${w.isFrozen ? (this.zram.algorithm === 'zstd' ? '9 MB (zstd 4.3x)' : '13 MB (lz4 3.2x)') : '42 MB'}</span>
           `;
           telemetryTable.appendChild(row);
         }

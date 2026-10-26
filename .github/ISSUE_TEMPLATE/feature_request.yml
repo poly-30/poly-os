@@ -1,0 +1,58 @@
+name: "💡 Feature Request / RFC"
+description: "Suggest a new feature, UX improvement, or architectural proposal for Poly OS."
+title: "[Feature]: "
+labels: ["enhancement", "proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping evolve **Poly OS**!
+        We welcome proposals for UI features, window physics optimizations, daemon capabilities, and compositor enhancements.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Target Area"
+      description: "Which part of Poly OS does this proposal affect?"
+      options:
+        - "poly-shell (UI, Glassmorphism, Dock, Widgets, Aero Snap)"
+        - "poly-compositor (Wayland protocols, GPU renderers, Smithay)"
+        - "poly-daemon (polyd supervisor, ZRAM compaction, cgroups)"
+        - "Built-in Apps (Terminal, Files Explorer, Code Studio, Notes, Music)"
+        - "iso-build (Bootloader, kernel config, packaging)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem or Motivation"
+      description: "Is your feature request related to a specific limitation or pain point? Please describe."
+      placeholder: "Currently, Poly OS does not support..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "Proposed Solution"
+      description: "Detailed description of how you envision this working:"
+      placeholder: "Add support for..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives Considered"
+      description: "Any alternative implementations or fallback behaviors you evaluated:"
+      placeholder: "We could also consider..."
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: "Implementation Interest"
+      description: "Are you willing to submit a Pull Request to implement this feature?"
+      options:
+        - label: "Yes, I would love to submit a PR for this!"
+        - label: "No, I am only opening the request for discussion."
