@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/Kernel-Linux%20cgroups%20v2-ff9f0a?style=for-the-badge&logo=tux&logoColor=white" alt="cgroups v2" />
   <img src="https://img.shields.io/badge/Memory-Sub--250MB%20ZRAM-bf5af2?style=for-the-badge" alt="ZRAM Footprint" />
   <img src="https://img.shields.io/badge/Display-120Hz%20Adaptive%20VSync-64d2ff?style=for-the-badge" alt="120Hz VSync" />
+  <img src="https://img.shields.io/badge/Live%20ISO-GitHub%20Actions%20CI%2FCD-34c759?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI/CD ISO Pipeline" />
   <img src="https://img.shields.io/badge/License-MIT-gray?style=for-the-badge" alt="License" />
 </p>
 
@@ -326,6 +327,30 @@ Three real-time canvas shader wallpapers:
 - **`aurora`** — Harmonic flowing sine waves (cyan, emerald, purple)
 - **`particles`** — 55 interactive nodes with cursor-reactive connections
 - **`cupertino`** — Breathing radial glassmorphic gradient
+
+## 💿 Automated Live Bootable ISO Pipeline (`iso-build`)
+
+Poly OS includes a fully automated CI/CD pipeline using **GitHub Actions** (`.github/workflows/build-iso.yml`) to master and publish a bootable hybrid ISO (`poly-os-x86_64.iso`):
+
+- **Dual Boot Capability**: Boots on modern **UEFI (x86_64)** systems with Secure Boot fallback and legacy **BIOS (i386-pc)** machines.
+- **SquashFS Rootfs**: High-ratio Zstandard (`zstd -Xcompression-level 19`) compression bundling:
+  - Compiled release binary of `poly-compositor` (Smithay + DRM/KMS + GLES 3.1)
+  - `polyd` process supervisor and ZRAM optimization daemon
+  - Complete `poly-shell` assets, fonts, wallpapers, and desktop web applications
+  - Custom OpenRC low-latency init scripts (`/etc/init.d/poly`) and sysctl tuning
+- **Automated Checksums & Release**: Calculates `SHA256SUMS` and uploads artifacts to GitHub Actions workflow runs (14-day retention) and creates GitHub Release downloads on version tags (`v*`).
+
+### Building the Live ISO Locally (Linux)
+
+```bash
+# Install mastering dependencies (Ubuntu/Debian)
+sudo apt install -y squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools dosfstools
+
+# Run build script
+bash iso-build/build-iso.sh
+
+# The ISO will be produced in iso-build/out/poly-os-x86_64-v0.1.iso
+```
 
 ---
 

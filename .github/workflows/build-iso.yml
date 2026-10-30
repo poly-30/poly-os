@@ -1,0 +1,173 @@
+name: Build & Release Poly OS Live ISO
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+    paths:
+      - "poly-compositor/**"
+      - "poly-daemon/**"
+      - "poly-shell/**"
+      - "iso-build/**"
+      - ".github/workflows/build-iso.yml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "poly-compositor/**"
+      - "poly-daemon/**"
+      - "poly-shell/**"
+      - "iso-build/**"
+      - ".github/workflows/build-iso.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-compositor:
+    name: Build poly-compositor (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            poly-compositor/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('poly-compositor/Cargo.lock', 'poly-compositor/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Wayland & DRM System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libwayland-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libudev-dev \
+            libseat-dev \
+            libxkbcommon-dev \
+            libinput-dev \
+            libegl-dev \
+            libgles2-mesa-dev
+
+      - name: Compile poly-compositor (Release)
+        working-directory: poly-compositor
+        run: |
+          cargo build --release
+
+      - name: Upload Compositor Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poly-compositor-bin
+          path: poly-compositor/target/release/poly-compositor
+          if-no-files-found: error
+
+  build-live-iso:
+    name: Master Live ISO & Rootfs
+    needs: build-compositor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Built Compositor Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: poly-compositor-bin
+          path: poly-compositor/target/release/
+
+      - name: Ensure Executable Permissions
+        run: |
+          chmod +x poly-compositor/target/release/poly-compositor
+          chmod +x iso-build/build-iso.sh
+
+      - name: Install ISO Mastering Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            squashfs-tools \
+            xorriso \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools \
+            dosfstools
+
+      - name: Run ISO Build Script
+        env:
+          ISO_NAME: "poly-os-x86_64-${{ github.sha }}.iso"
+        run: |
+          bash iso-build/build-iso.sh
+
+      - name: Prepare Output Files for Distribution
+        id: prep
+        run: |
+          cd iso-build/out
+          # Rename to clean standard name for release
+          MAIN_ISO="poly-os-x86_64.iso"
+          cp "poly-os-x86_64-${{ github.sha }}.iso" "${MAIN_ISO}"
+          sha256sum "${MAIN_ISO}" > "${MAIN_ISO}.sha256"
+          echo "iso_path=iso-build/out/${MAIN_ISO}" >> "$GITHUB_OUTPUT"
+          echo "sha_path=iso-build/out/${MAIN_ISO}.sha256" >> "$GITHUB_OUTPUT"
+          echo "sha_val=$(cat ${MAIN_ISO}.sha256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Print ISO Image Checksum
+        run: |
+          echo "============================================="
+          echo "Poly OS ISO SHA-256 Checksum:"
+          cat ${{ steps.prep.outputs.sha_path }}
+          echo "============================================="
+
+      - name: Upload ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poly-os-live-iso
+          path: |
+            ${{ steps.prep.outputs.iso_path }}
+            ${{ steps.prep.outputs.sha_path }}
+          retention-days: 14
+
+      - name: Create GitHub Release on Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Poly OS ${{ github.ref_name }}"
+          body: |
+            ## Poly OS Live Bootable ISO (${{ github.ref_name }})
+            
+            Welcome to the official automated release of **Poly OS**, the hybrid desktop OS featuring 120Hz spring physics and low-memory ZRAM freezing.
+            
+            ### Included Components
+            - **Compositor**: `poly-compositor` (Rust + Smithay DRM/KMS backend + GLES 3.1)
+            - **Daemon**: `polyd` with cgroups v2 freezing & real-time LZ4/ZSTD compression telemetry
+            - **Shell**: Glassmorphic 120Hz desktop web shell with Aero Snap, FancyZones & built-in apps
+            
+            ### Verification
+            ```text
+            SHA256: ${{ steps.prep.outputs.sha_val }}  poly-os-x86_64.iso
+            ```
+            
+            *Flash to USB via Rufus or BalenaEtcher, or boot with QEMU/VirtualBox using UEFI or BIOS.*
+          files: |
+            ${{ steps.prep.outputs.iso_path }}
+            ${{ steps.prep.outputs.sha_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
