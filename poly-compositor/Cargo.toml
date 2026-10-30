@@ -7,22 +7,23 @@ description = "Hardware-accelerated Wayland compositor with DRM/KMS, Vulkan/GLES
 
 [dependencies]
 # ── Wayland compositor framework ─────────────────────────────────────────────
-# Smithay provides the DRM/KMS backend, EGL/GLES renderer, Wayland protocol
-# handling, and the high-level Desktop abstraction for window management.
+# Smithay provides the DRM/KMS backend, EGL/GLES renderer, and Wayland protocol
+# handling.  Note: Smithay 0.3 does not expose a "desktop" feature — window
+# stacking and focus management are implemented in our own PolyCompositorState.
 smithay = { version = "0.3", default-features = false, features = [
-    "backend_drm",         # DRM/KMS scanout — no X11 dependency
-    "backend_egl",         # EGL context for GPU-accelerated GLES rendering
-    "backend_udev",        # Hot-plug monitor detection on real hardware
+    "backend_drm",             # DRM/KMS scanout — no X11 dependency
+    "backend_egl",             # EGL context for GPU-accelerated GLES rendering
+    "backend_gbm",             # Generic Buffer Manager for DRM render buffers
+    "backend_udev",            # Hot-plug monitor detection on real hardware
     "backend_session_libseat", # Rootless session management via libseat
-    "backend_winit",       # Winit fallback for development/testing on X11/Wayland
-    "renderer_gl",         # OpenGL ES 3.x renderer (drives GLSL frosted-glass shader)
-    "wayland_frontend",    # Wayland client protocol handling (wl_surface, etc.)
-    "desktop",             # High-level window stacking, focus, and space helpers
-    "xwayland",            # X11 compatibility layer for legacy apps
+    "backend_winit",           # Winit fallback for development/testing on X11/Wayland
+    "renderer_gl",             # OpenGL ES 3.x renderer (drives GLSL frosted-glass shader)
+    "wayland_frontend",        # Wayland client protocol handling (wl_surface, etc.)
+    "xwayland",                # X11 compatibility layer for legacy apps
 ] }
 
-wayland-server = "0.31"
-wayland-protocols = { version = "0.31", features = ["server"] }
+# Note: wayland-server and wayland-protocols are provided transitively by
+# smithay with the correct compatible versions — do not pin them separately.
 
 # ── Event loop ───────────────────────────────────────────────────────────────
 # Smithay uses calloop as its core event loop; we schedule the 120Hz VSync
