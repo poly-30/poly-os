@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poly OS — Secondary Display (DP-1 4K Extended)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Secondary Display Specific Styling */
+    body {
+      background: radial-gradient(circle at 80% 20%, #0d1b2a 0%, #040810 100%),
+                  radial-gradient(at 100% 0%, rgba(0, 120, 215, 0.45) 0px, transparent 60%);
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #display2-topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 38px;
+      background: rgba(18, 22, 34, 0.82);
+      backdrop-filter: blur(28px) saturate(190%);
+      -webkit-backdrop-filter: blur(28px) saturate(190%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 10000;
+      font-size: 13px;
+      color: #fff;
+    }
+
+    .d2-title-cluster {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+    }
+
+    .d2-monitor-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      background: rgba(10, 132, 255, 0.22);
+      border: 1px solid rgba(10, 132, 255, 0.45);
+      border-radius: 6px;
+      font-size: 11px;
+      color: #64d2ff;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .d2-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .d2-status-dot {
+      width: 8px;
+      height: 8px;
+      background: #30d158;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #30d158;
+      animation: pulse-dot 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.85); }
+    }
+
+    .d2-actions-cluster {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .d2-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #fff;
+      padding: 4px 12px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .d2-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .d2-btn-return {
+      background: rgba(10, 132, 255, 0.2);
+      border-color: rgba(10, 132, 255, 0.4);
+      color: #64d2ff;
+    }
+
+    .d2-btn-return:hover {
+      background: rgba(10, 132, 255, 0.35);
+      border-color: rgba(10, 132, 255, 0.7);
+    }
+
+    #display2-workspace {
+      position: absolute;
+      top: 38px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+    }
+
+    .d2-empty-state {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: rgba(255, 255, 255, 0.45);
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .d2-empty-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+      opacity: 0.6;
+    }
+
+    .d2-empty-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 6px;
+    }
+
+    .d2-empty-hint {
+      font-size: 13px;
+      line-height: 1.5;
+      max-width: 380px;
+    }
+
+    .d2-empty-hint kbd {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-family: inherit;
+    }
+
+    /* Window Return to D1 Titlebar Button */
+    .btn-return-d1 {
+      background: rgba(10, 132, 255, 0.18);
+      border: 1px solid rgba(10, 132, 255, 0.35);
+      color: #64d2ff;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-right: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-return-d1:hover {
+      background: rgba(10, 132, 255, 0.35);
+      border-color: rgba(10, 132, 255, 0.65);
+    }
+  </style>
+</head>
+<body>
+  <!-- Secondary Display Top Bar -->
+  <header id="display2-topbar">
+    <div class="d2-title-cluster">
+      <span>🖥️ Poly OS</span>
+      <span class="d2-monitor-badge">DP-1 • 4K @ 60Hz</span>
+      <span style="opacity:0.4;">|</span>
+      <span style="font-size:12px; opacity:0.8;">Secondary Workspace (Extended)</span>
+    </div>
+
+    <div class="d2-status-pill">
+      <div class="d2-status-dot"></div>
+      <span id="d2-connection-label">Linked to Primary Display</span>
+    </div>
+
+    <div class="d2-actions-cluster">
+      <button class="d2-btn d2-btn-return" id="btn-return-all">
+        <span>↩</span> Return All to Display 1
+      </button>
+      <button class="d2-btn" id="btn-snap-left-d2" title="Snap left on Display 2">◧</button>
+      <button class="d2-btn" id="btn-snap-right-d2" title="Snap right on Display 2">◨</button>
+    </div>
+  </header>
+
+  <!-- Secondary Workspace Area -->
+  <main id="display2-workspace">
+    <div class="d2-empty-state" id="d2-empty-state">
+      <div class="d2-empty-icon">🖥️ ⇄ 🖥️</div>
+      <div class="d2-empty-title">Secondary Monitor Active</div>
+      <div class="d2-empty-hint">
+        Drag windows to the right edge on Display 1 or click <kbd>🖥️²</kbd> in any window titlebar.
+        <br><br>
+        Shortcut: <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>→</kbd> migrates focused window here!
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // ─── BroadcastChannel Multi-Monitor Engine (Display 2 Node) ───────────────
+    const channel = new BroadcastChannel('poly_display_channel');
+    const workspace = document.getElementById('display2-workspace');
+    const emptyState = document.getElementById('d2-empty-state');
+    const returnAllBtn = document.getElementById('btn-return-all');
+    const statusLabel = document.getElementById('d2-connection-label');
+
+    // Local registry of windows hosted on Display 2
+    const hostedWindows = new Map();
+    let nextZIndex = 100;
+
+    function updateEmptyState() {
+      if (emptyState) {
+        emptyState.style.display = hostedWindows.size === 0 ? 'block' : 'none';
+      }
+    }
+
+    // Handshake with Primary Display on startup
+    channel.postMessage({
+      type: 'DISPLAY2_CONNECTED',
+      timestamp: Date.now(),
+      resolution: { width: window.innerWidth, height: window.innerHeight }
+    });
+
+    // Heartbeat every 2 seconds to prove vitality
+    setInterval(() => {
+      channel.postMessage({
+        type: 'DISPLAY2_HEARTBEAT',
+        windowCount: hostedWindows.size,
+        timestamp: Date.now()
+      });
+    }, 2000);
+
+    // Fail-safe repatriation on window close / unload
+    window.addEventListener('beforeunload', () => {
+      const windowsToReturn = [];
+      hostedWindows.forEach((winData, id) => {
+        windowsToReturn.push({
+          id,
+          title: winData.title,
+          icon: winData.icon,
+          contentHtml: winData.contentHtml,
+          bounds: winData.bounds
+        });
+      });
+
+      channel.postMessage({
+        type: 'DISPLAY2_CLOSING',
+        windows: windowsToReturn,
+        timestamp: Date.now()
+      });
+    });
+
+    // Listen for incoming messages from Primary Display
+    channel.onmessage = (event) => {
+      const msg = event.data;
+      if (!msg || !msg.type) return;
+
+      switch (msg.type) {
+        case 'PING':
+          channel.postMessage({ type: 'PONG', timestamp: Date.now() });
+          break;
+
+        case 'WINDOW_TRANSFER':
+          // Window migrated from Display 1 -> Display 2
+          createHostedWindow(msg.window);
+          break;
+
+        case 'RECALL_ALL_WINDOWS':
+          // Primary requested all windows back
+          repatriateAll();
+          break;
+
+        case 'CLOSE_WINDOW_REMOTE':
+          // Primary closed window remotely
+          if (hostedWindows.has(msg.id)) {
+            const el = document.getElementById(`d2-window-${msg.id}`);
+            if (el) el.remove();
+            hostedWindows.delete(msg.id);
+            updateEmptyState();
+          }
+          break;
+      }
+    };
+
+    function createHostedWindow(win) {
+      if (hostedWindows.has(win.id)) return;
+
+      const el = document.createElement('div');
+      el.className = 'window focused';
+      el.id = `d2-window-${win.id}`;
+      el.style.position = 'absolute';
+      
+      const defaultW = Math.min(win.bounds ? win.bounds.w : 760, window.innerWidth - 80);
+      const defaultH = Math.min(win.bounds ? win.bounds.h : 480, window.innerHeight - 100);
+      const posX = Math.max(30, (window.innerWidth - defaultW) / 2);
+      const posY = Math.max(30, (window.innerHeight - defaultH) / 2);
+
+      el.style.width = `${defaultW}px`;
+      el.style.height = `${defaultH}px`;
+      el.style.left = `${posX}px`;
+      el.style.top = `${posY}px`;
+      el.style.zIndex = ++nextZIndex;
+
+      el.innerHTML = `
+        <div class="window-titlebar">
+          <div class="window-traffic-lights">
+            <button class="traffic-light btn-close" title="Close">✕</button>
+            <button class="traffic-light btn-min" title="Minimize">−</button>
+            <button class="traffic-light btn-max" title="Maximize">□</button>
+          </div>
+          <div class="window-title">${win.icon || '🪟'} ${win.title || 'Window'} <span style="font-size:10px; opacity:0.6; margin-left:6px;">[Display 2]</span></div>
+          <div class="window-actions-right">
+            <button class="btn-return-d1" title="Return to Primary Display (Alt+Shift+Left)">↩ Display 1</button>
+            <button class="btn-exit-fullscreen" style="display:none;" title="Exit Full Screen">⤡</button>
+          </div>
+        </div>
+        <div class="window-content" style="height: calc(100% - 38px); overflow: auto;">
+          ${win.contentHtml}
+        </div>
+      `;
+
+      workspace.appendChild(el);
+      hostedWindows.set(win.id, {
+        id: win.id,
+        title: win.title,
+        icon: win.icon,
+        contentHtml: win.contentHtml,
+        bounds: { x: posX, y: posY, w: defaultW, h: defaultH },
+        element: el
+      });
+      updateEmptyState();
+
+      // Window Focus
+      el.addEventListener('mousedown', () => {
+        el.style.zIndex = ++nextZIndex;
+        document.querySelectorAll('.window').forEach(w => w.classList.remove('focused'));
+        el.classList.add('focused');
+      });
+
+      // Window Close
+      const closeBtn = el.querySelector('.btn-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          el.remove();
+          hostedWindows.delete(win.id);
+          updateEmptyState();
+          channel.postMessage({
+            type: 'WINDOW_CLOSED_ON_D2',
+            id: win.id
+          });
+        });
+      }
+
+      // Maximize
+      const maxBtn = el.querySelector('.btn-max');
+      if (maxBtn) {
+        let isMax = false;
+        let prevRect = null;
+        maxBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          isMax = !isMax;
+          if (isMax) {
+            prevRect = { left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height };
+            el.style.left = '0px';
+            el.style.top = '0px';
+            el.style.width = '100%';
+            el.style.height = '100%';
+            maxBtn.textContent = '❐';
+          } else if (prevRect) {
+            el.style.left = prevRect.left;
+            el.style.top = prevRect.top;
+            el.style.width = prevRect.width;
+            el.style.height = prevRect.height;
+            maxBtn.textContent = '□';
+          }
+        });
+      }
+
+      // Return to Display 1 Button
+      const returnBtn = el.querySelector('.btn-return-d1');
+      if (returnBtn) {
+        returnBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          repatriateWindow(win.id);
+        });
+      }
+
+      // Window Dragging & Left Boundary Detection
+      const titlebar = el.querySelector('.window-titlebar');
+      initD2Drag(el, titlebar, win.id);
+    }
+
+    function initD2Drag(winEl, titlebar, winId) {
+      let isDragging = false;
+      let startX, startY, origX, origY;
+
+      titlebar.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return;
+        isDragging = true;
+        winEl.style.zIndex = ++nextZIndex;
+        startX = e.clientX;
+        startY = e.clientY;
+        origX = winEl.offsetLeft;
+        origY = winEl.offsetTop;
+
+        const onMouseMove = (moveEvent) => {
+          if (!isDragging) return;
+          const deltaX = moveEvent.clientX - startX;
+          const deltaY = moveEvent.clientY - startY;
+
+          let targetX = origX + deltaX;
+          let targetY = Math.max(0, origY + deltaY);
+
+          winEl.style.left = `${targetX}px`;
+          winEl.style.top = `${targetY}px`;
+
+          // If dragged past the left screen edge (< -20px), trigger repatriation back to Display 1!
+          if (moveEvent.clientX <= 5) {
+            winEl.style.opacity = '0.5';
+            statusLabel.textContent = 'Release to send back to Display 1';
+          } else {
+            winEl.style.opacity = '1.0';
+            statusLabel.textContent = 'Linked to Primary Display';
+          }
+        };
+
+        const onMouseUp = (upEvent) => {
+          if (!isDragging) return;
+          isDragging = false;
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+
+          winEl.style.opacity = '1.0';
+          statusLabel.textContent = 'Linked to Primary Display';
+
+          // If released near or past left edge, send back to Display 1
+          if (upEvent.clientX <= 20) {
+            repatriateWindow(winId);
+          }
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      });
+    }
+
+    function repatriateWindow(id) {
+      const winData = hostedWindows.get(id);
+      if (!winData) return;
+
+      const el = document.getElementById(`d2-window-${id}`);
+      if (el) el.remove();
+      hostedWindows.delete(id);
+      updateEmptyState();
+
+      channel.postMessage({
+        type: 'WINDOW_RETURN',
+        window: {
+          id: winData.id,
+          title: winData.title,
+          icon: winData.icon,
+          contentHtml: winData.contentHtml,
+          bounds: winData.bounds
+        }
+      });
+    }
+
+    function repatriateAll() {
+      const ids = Array.from(hostedWindows.keys());
+      ids.forEach(id => repatriateWindow(id));
+    }
+
+    returnAllBtn.addEventListener('click', repatriateAll);
+
+    // Keyboard Shortcuts inside Display 2:
+    // Alt + Shift + Left or Win + Shift + Left sends focused window back to Display 1
+    window.addEventListener('keydown', (e) => {
+      if ((e.altKey || e.metaKey) && e.shiftKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const focusedEl = document.querySelector('.window.focused');
+        if (focusedEl) {
+          const id = parseInt(focusedEl.id.replace('d2-window-', ''), 10);
+          if (!isNaN(id)) repatriateWindow(id);
+        }
+      }
+    });
+
+    // Snap buttons in top bar
+    document.getElementById('btn-snap-left-d2').addEventListener('click', () => {
+      const focusedEl = document.querySelector('.window.focused');
+      if (focusedEl) {
+        focusedEl.style.left = '0px';
+        focusedEl.style.top = '0px';
+        focusedEl.style.width = '50%';
+        focusedEl.style.height = '100%';
+      }
+    });
+
+    document.getElementById('btn-snap-right-d2').addEventListener('click', () => {
+      const focusedEl = document.querySelector('.window.focused');
+      if (focusedEl) {
+        focusedEl.style.left = '50%';
+        focusedEl.style.top = '0px';
+        focusedEl.style.width = '50%';
+        focusedEl.style.height = '100%';
+      }
+    });
+  </script>
+</body>
+</html>

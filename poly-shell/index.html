@@ -18,7 +18,7 @@
       caches.keys().then(names => names.forEach(n => caches.delete(n)));
     }
   </script>
-  <link rel="stylesheet" href="style.css?v=3.8">
+  <link rel="stylesheet" href="style.css?v=4.6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 </head>
@@ -74,15 +74,26 @@
 
       <div class="center-group">
         <!-- Dynamic Island / Status Pill -->
-        <div id="dynamic-island" class="island-idle">
+        <div id="dynamic-island" class="island-idle" role="status" aria-live="polite" aria-atomic="true">
           <div class="island-icon" id="island-icon">🎵</div>
           <span class="island-text" id="island-text">Poly OS • Smooth 120Hz Engine Active</span>
         </div>
       </div>
 
       <div class="right-group">
+        <!-- Connectivity Status Indicators (Wi-Fi & Bluetooth) -->
+        <button class="menu-pill topbar-icon-btn" id="topbar-wifi" title="Wi-Fi: Connected (Poly-Mesh 6E)">
+          <span class="topbar-wifi-icon">📶</span>
+        </button>
+        <button class="menu-pill topbar-icon-btn" id="topbar-bluetooth" title="Bluetooth: Connected (AirPods Pro)">
+          <span class="topbar-bt-icon">ᛒ</span>
+        </button>
+
+        <!-- System Tray (Issue 17: Background Apps & Keep-Alive Status) -->
+        <div id="system-tray" class="system-tray" title="System Tray — Background Apps"></div>
+
         <!-- Notification Center Bell -->
-        <button class="menu-pill topbar-icon-btn" id="notif-btn" title="Notification Center (3 Alerts)">
+        <button class="menu-pill topbar-icon-btn" id="notif-btn" title="Notification Center">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
@@ -111,10 +122,13 @@
           </svg>
         </button>
 
-        <!-- System Clock -->
-        <div class="clock" id="system-clock">12:00 PM</div>
+        <!-- System Clock (Click opens Notification Center) -->
+        <div class="clock" id="system-clock" title="Open Notification Center" style="cursor: pointer;">12:00 PM</div>
       </div>
     </header>
+
+    <!-- Floating Toast Notifications Container (Issue 12) -->
+    <div id="notification-stack" class="notification-stack" aria-live="polite"></div>
 
     <!-- Poly System Menu (Apple Menu + Windows Start Menu Hybrid) -->
     <div id="poly-system-menu" class="system-menu-dropdown hidden">
@@ -240,7 +254,7 @@
     </div>
 
     <!-- FancyZones Layout Selector & Zone Editor Modal -->
-    <div id="fancyzones-modal" class="quicklook-overlay hidden">
+    <div id="fancyzones-modal" class="quicklook-overlay hidden" role="dialog" aria-modal="true" aria-label="FancyZones Tiling Layouts">
       <div class="quicklook-box fancyzones-modal-box">
         <div class="quicklook-header">
           <div class="ql-title-group">
@@ -331,7 +345,10 @@
           <span class="widget-icon">⚡</span>
           <span class="widget-title">Poly Engine</span>
         </div>
-        <span class="widget-badge" id="widget-hz-badge">120 Hz Active</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="widget-badge" id="widget-hz-badge">120 Hz Active</span>
+          <button class="widget-close-btn" title="Close Widget" aria-label="Close">×</button>
+        </div>
       </div>
       <div class="widget-body">
         <div class="perf-grid">
@@ -397,7 +414,10 @@
           <span class="widget-icon">🕒</span>
           <span class="widget-title">Time & Calendar</span>
         </div>
-        <span class="widget-badge" id="widget-date-badge">Today</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="widget-badge" id="widget-date-badge">Today</span>
+          <button class="widget-close-btn" title="Close Widget" aria-label="Close">×</button>
+        </div>
       </div>
       <div class="widget-body clock-widget-body">
         <div class="clock-time-display" id="clock-widget-time">12:00:00 PM</div>
@@ -418,7 +438,10 @@
           <span class="widget-icon" id="weather-widget-icon">⛅</span>
           <span class="widget-title">Cupertino Atmosphere</span>
         </div>
-        <span class="widget-badge">Live Air</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="widget-badge">Live Air</span>
+          <button class="widget-close-btn" title="Close Widget" aria-label="Close">×</button>
+        </div>
       </div>
       <div class="widget-body weather-widget-body">
         <div class="weather-temp-row">
@@ -453,11 +476,14 @@
           <span class="widget-icon">📌</span>
           <span class="widget-title">Quick Scratchpad</span>
         </div>
-        <div class="sticky-color-picker">
-          <span class="color-dot dot-yellow active" data-color="yellow"></span>
-          <span class="color-dot dot-blue" data-color="blue"></span>
-          <span class="color-dot dot-purple" data-color="purple"></span>
-          <span class="color-dot dot-green" data-color="green"></span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <div class="sticky-color-picker">
+            <span class="color-dot dot-yellow active" data-color="yellow"></span>
+            <span class="color-dot dot-blue" data-color="blue"></span>
+            <span class="color-dot dot-purple" data-color="purple"></span>
+            <span class="color-dot dot-green" data-color="green"></span>
+          </div>
+          <button class="widget-close-btn" title="Close Widget" aria-label="Close">×</button>
         </div>
       </div>
       <div class="widget-body sticky-widget-body">
@@ -493,6 +519,9 @@
       </div>
     </div>
 
+    <!-- System Tray Context Menu Flyout (Issue 17) -->
+    <div id="tray-context-menu" class="tray-context-menu hidden" aria-hidden="true"></div>
+
     <!-- Desktop Context Menu (Right-Click) -->
     <div id="desktop-context-menu" class="desktop-ctx-menu hidden">
       <div class="ctx-item" id="ctx-open">
@@ -508,7 +537,7 @@
       </div>
       <div class="ctx-separator"></div>
       <div class="ctx-item" id="ctx-live-wallpaper">
-        <span>🌌 Live Wallpaper Engine</span>
+        <span>🌌 Next Live Wallpaper</span>
         <kbd>L</kbd>
       </div>
       <div class="ctx-item" id="ctx-wallpaper">
@@ -536,7 +565,7 @@
     </div>
 
     <!-- Desktop File Quick Look Modal -->
-    <div id="quicklook-modal" class="quicklook-overlay hidden">
+    <div id="quicklook-modal" class="quicklook-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="ql-name">
       <div class="quicklook-box">
         <div class="quicklook-header">
           <div class="ql-title-group">
@@ -573,7 +602,7 @@
     </div>
 
     <!-- Spotlight Universal Search (iOS Spotlight + PowerToys Run) -->
-    <div id="spotlight-overlay" class="hidden">
+    <div id="spotlight-overlay" class="hidden" role="dialog" aria-modal="true" aria-label="Spotlight Universal Search">
       <div id="spotlight-box">
         <div class="spotlight-input-row">
           <svg class="spotlight-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -588,7 +617,7 @@
         </div>
         <div class="spotlight-footer">
           <div class="spotlight-hint">Navigate <b>↑ ↓</b></div>
-          <div class="spotlight-hint">Open / Run <b>↵ Enter</b></div>
+          <div class="spotlight-hint" id="spotlight-action-hint">Open / Run <b>↵ Enter</b></div>
           <div class="spotlight-hint">Close <b>Esc</b></div>
         </div>
       </div>
@@ -617,6 +646,16 @@
             <button class="cc-btn active" id="toggle-stage">
               <span class="icon">🪟</span>
               <div class="btn-info"><span class="title">Aero Snap</span><span class="subtitle">Active</span></div>
+            </button>
+          </div>
+          <div class="toggle-row" style="margin-top:6px; display:flex; gap:6px;">
+            <button class="cc-btn" id="toggle-appearance-theme" style="flex:1; justify-content:flex-start;" title="Toggle Light/Dark Theme">
+              <span class="icon">🌓</span>
+              <div class="btn-info"><span class="title">Dark Mode</span><span class="subtitle">Theme</span></div>
+            </button>
+            <button class="cc-btn" id="toggle-desktop-widgets" style="flex:1; justify-content:flex-start;" title="Toggle Desktop Widgets">
+              <span class="icon">🧩</span>
+              <div class="btn-info"><span class="title">Widgets</span><span class="subtitle" id="cc-widgets-status">Hidden</span></div>
             </button>
           </div>
         </div>
@@ -873,6 +912,16 @@
     </div>
   </div>
 
-  <script src="shell.js?v=3.8"></script>
+  <!-- Universal Drag & Drop Floating Ghost Thumbnail (Issue 16) -->
+  <div id="poly-drag-ghost" class="poly-drag-ghost hidden" aria-hidden="true">
+    <span class="ghost-icon" id="ghost-icon">📄</span>
+    <span class="ghost-title" id="ghost-title">filename</span>
+    <span class="ghost-badge" id="ghost-badge">Drop to Transfer</span>
+  </div>
+
+  <!-- Screen Brightness Dimming Overlay -->
+  <div id="screen-brightness-overlay" class="screen-brightness-overlay" aria-hidden="true"></div>
+
+  <script src="shell.js?v=4.8"></script>
 </body>
 </html>

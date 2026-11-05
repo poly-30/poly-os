@@ -51,6 +51,14 @@ pub struct OutputConfig {
     /// Physical size in millimeters for DPI calculation
     pub physical_width_mm: u32,
     pub physical_height_mm: u32,
+    /// Global compositor layout position X (pixels)
+    pub position_x: i32,
+    /// Global compositor layout position Y (pixels)
+    pub position_y: i32,
+    /// Whether this is the primary display (hosts top bar & main dock)
+    pub is_primary: bool,
+    /// Display UI scale factor override (e.g. 1.0, 1.25, 1.5, 2.0)
+    pub scale: f32,
 }
 
 impl OutputConfig {
@@ -64,6 +72,9 @@ impl OutputConfig {
 
     /// Calculate the scale factor (1× for ≤120 DPI, 2× for HiDPI, etc.)
     pub fn scale_factor(&self) -> f32 {
+        if self.scale > 0.0 {
+            return self.scale;
+        }
         let dpi = self.dpi();
         if dpi <= 140.0 {
             1.0
@@ -80,6 +91,83 @@ impl OutputConfig {
             return Duration::from_micros(8333); // 120 Hz fallback
         }
         Duration::from_nanos(1_000_000_000_000 / self.refresh_mhz as u64)
+    }
+}
+
+/// Manages spatial arrangement and coordinate transformation for multiple monitors.
+#[derive(Debug, Clone)]
+pub struct MultiOutputLayout {
+    /// Attached display outputs indexed by connector ID
+    pub outputs: Vec<OutputConfig>,
+    /// Whether displays mirror the primary output or extend desktop space
+    pub mirror_mode: bool,
+}
+
+impl MultiOutputLayout {
+    pub fn new() -> Self {
+        Self {
+            outputs: Vec::new(),
+            mirror_mode: false,
+        }
+    }
+
+    /// Add or update an output configuration.
+    pub fn add_output(&mut self, output: OutputConfig) {
+        if let Some(existing) = self.outputs.iter_mut().find(|o| o.name == output.name) {
+            *existing = output;
+        } else {
+            self.outputs.push(output);
+        }
+    }
+
+    /// Find which physical output contains global compositor point (x, y).
+    pub fn output_at(&self, x: i32, y: i32) -> Option<&OutputConfig> {
+        for output in &self.outputs {
+            let left = output.position_x;
+            let right = left + output.width as i32;
+            let top = output.position_y;
+            let bottom = top + output.height as i32;
+
+            if x >= left && x < right && y >= top && y < bottom {
+                return Some(output);
+            }
+        }
+        self.outputs.iter().find(|o| o.is_primary).or_else(|| self.outputs.first())
+    }
+
+    /// Compute the overall bounding rectangle encompassing all active displays.
+    pub fn total_bounding_box(&self) -> (i32, i32, u32, u32) {
+        if self.outputs.is_empty() {
+            return (0, 0, 1920, 1080);
+        }
+
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+
+        for output in &self.outputs {
+            min_x = min_x.min(output.position_x);
+            min_y = min_y.min(output.position_y);
+            max_x = max_x.max(output.position_x + output.width as i32);
+            max_y = max_y.max(output.position_y + output.height as i32);
+        }
+
+        let width = (max_x - min_x).max(1) as u32;
+        let height = (max_y - min_y).max(1) as u32;
+        (min_x, min_y, width, height)
+    }
+
+    /// Reposition a secondary output relative to primary (e.g. "right", "left", "above", "below").
+    pub fn set_relative_position(&mut self, target_name: &str, pos_x: i32, pos_y: i32) {
+        if let Some(output) = self.outputs.iter_mut().find(|o| o.name == target_name) {
+            output.position_x = pos_x;
+            output.position_y = pos_y;
+            log::info!(
+                "Output '{}' repositioned to ({}, {})",
+                target_name, pos_x, pos_y
+            );
+        }
     }
 }
 
@@ -426,7 +514,7 @@ pub struct DrmProbeResult {
 pub fn probe_drm() -> DrmProbeResult {
     log::info!("Probing DRM/KMS subsystem...");
 
-    // Simulated primary output: a 2560×1440 @ 120 Hz monitor on HDMI
+    // Simulated primary output: 2560×1440 @ 120 Hz monitor on HDMI-A-1
     let primary_output = OutputConfig {
         connector_id: 87,
         crtc_id: 51,
@@ -436,21 +524,64 @@ pub fn probe_drm() -> DrmProbeResult {
         refresh_mhz: 120_000,
         physical_width_mm: 597,
         physical_height_mm: 336,
+        position_x: 0,
+        position_y: 0,
+        is_primary: true,
+        scale: 1.0,
+    };
+
+    // Simulated secondary output: 3840×2160 (4K) @ 60 Hz monitor on DP-1 (Extended right)
+    let secondary_output = OutputConfig {
+        connector_id: 88,
+        crtc_id: 52,
+        name: "DP-1".to_string(),
+        width: 3840,
+        height: 2160,
+        refresh_mhz: 60_000,
+        physical_width_mm: 698,
+        physical_height_mm: 393,
+        position_x: 2560,
+        position_y: 0,
+        is_primary: false,
+        scale: 1.5,
     };
 
     log::info!(
-        "  Found output '{}': {}×{} @ {} Hz ({:.0} DPI, {:.1}× scale)",
+        "  [Primary] Output '{}': {}×{} @ {} Hz ({:.0} DPI, {:.1}× scale) at ({}, {})",
         primary_output.name,
         primary_output.width,
         primary_output.height,
         primary_output.refresh_mhz / 1000,
         primary_output.dpi(),
         primary_output.scale_factor(),
+        primary_output.position_x,
+        primary_output.position_y,
+    );
+
+    log::info!(
+        "  [Secondary] Output '{}': {}×{} @ {} Hz ({:.0} DPI, {:.1}× scale) at ({}, {})",
+        secondary_output.name,
+        secondary_output.width,
+        secondary_output.height,
+        secondary_output.refresh_mhz / 1000,
+        secondary_output.dpi(),
+        secondary_output.scale_factor(),
+        secondary_output.position_x,
+        secondary_output.position_y,
+    );
+
+    let mut layout = MultiOutputLayout::new();
+    layout.add_output(primary_output.clone());
+    layout.add_output(secondary_output.clone());
+    let (bbox_x, bbox_y, bbox_w, bbox_h) = layout.total_bounding_box();
+    log::info!(
+        "  Compositor Multi-Output Canvas Bounding Box: ({}, {}) {}×{}",
+        bbox_x, bbox_y, bbox_w, bbox_h
     );
 
     DrmProbeResult {
         device_path: "/dev/dri/card0".to_string(),
-        outputs: vec![primary_output],
+        outputs: vec![primary_output, secondary_output],
         driver_name: "amdgpu".to_string(),
         vulkan_available: true,
     }

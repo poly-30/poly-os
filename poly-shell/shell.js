@@ -8,6 +8,8 @@ class PolyAudio {
   constructor() {
     this.ctx = null;
     this.enabled = true;
+    this.volume = 0.8;
+    this.masterGain = null;
     this.musicPlaying = false;
     this.musicTimer = null;
     this.analyser = null;
@@ -20,11 +22,33 @@ class PolyAudio {
     ];
   }
 
+  setVolume(pct) {
+    const val = Math.max(0, Math.min(100, parseInt(pct) || 0)) / 100;
+    this.volume = val;
+    this.enabled = val > 0;
+    const ctx = this.ctx || (this.enabled ? this.ensureContext() : null);
+    if (ctx && this.masterGain) {
+      this.masterGain.gain.setValueAtTime(val, ctx.currentTime);
+    }
+  }
+
+  getDestination() {
+    if (this.ctx && this.masterGain) return this.masterGain;
+    return this.ctx ? this.ctx.destination : null;
+  }
+
   ensureContext() {
-    if (!this.enabled) return null;
+    if (!this.enabled || this.volume <= 0) return null;
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) this.ctx = new AudioCtx();
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+        try {
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
+          this.masterGain.connect(this.ctx.destination);
+        } catch(e) {}
+      }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
@@ -76,11 +100,12 @@ class PolyAudio {
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.36);
         
         osc.connect(gain);
+        const dest = this.getDestination() || ctx.destination;
         if (this.analyser) {
           gain.connect(this.analyser);
-          this.analyser.connect(ctx.destination);
+          this.analyser.connect(dest);
         } else {
-          gain.connect(ctx.destination);
+          gain.connect(dest);
         }
         osc.start();
         osc.stop(ctx.currentTime + 0.38);
@@ -133,6 +158,7 @@ class PolyAudio {
     const ctx = this.ensureContext();
     if (!ctx) return;
     try {
+      const dest = this.getDestination() || ctx.destination;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -141,7 +167,7 @@ class PolyAudio {
       gain.gain.setValueAtTime(0.06, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(dest);
       osc.start();
       osc.stop(ctx.currentTime + 0.05);
     } catch(e) {}
@@ -151,6 +177,7 @@ class PolyAudio {
     const ctx = this.ensureContext();
     if (!ctx) return;
     try {
+      const dest = this.getDestination() || ctx.destination;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
@@ -159,7 +186,7 @@ class PolyAudio {
       gain.gain.setValueAtTime(0.12, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(dest);
       osc.start();
       osc.stop(ctx.currentTime + 0.13);
     } catch(e) {}
@@ -169,6 +196,7 @@ class PolyAudio {
     const ctx = this.ensureContext();
     if (!ctx) return;
     try {
+      const dest = this.getDestination() || ctx.destination;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -177,7 +205,7 @@ class PolyAudio {
       gain.gain.setValueAtTime(0.08, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(dest);
       osc.start();
       osc.stop(ctx.currentTime + 0.16);
     } catch(e) {}
@@ -188,6 +216,7 @@ class PolyAudio {
     if (!ctx) return;
     try {
       const now = ctx.currentTime;
+      const dest = this.getDestination() || ctx.destination;
       [523.25, 783.99].forEach((freq, idx) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -196,7 +225,7 @@ class PolyAudio {
         gain.gain.setValueAtTime(0.08, now + idx * 0.09);
         gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.09 + 0.22);
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(dest);
         osc.start(now + idx * 0.09);
         osc.stop(now + idx * 0.09 + 0.25);
       });
@@ -208,6 +237,7 @@ class PolyAudio {
     if (!ctx) return;
     try {
       const now = ctx.currentTime;
+      const dest = this.getDestination() || ctx.destination;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -216,9 +246,51 @@ class PolyAudio {
       gain.gain.setValueAtTime(0.07, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(dest);
       osc.start(now);
       osc.stop(now + 0.22);
+    } catch(e) {}
+  }
+
+  playChime() {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const dest = this.getDestination() || ctx.destination;
+      // Elegant 3-tone harmonic chime (C5 -> E5 -> G5)
+      [523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+        gain.gain.setValueAtTime(0.09, now + idx * 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.06 + 0.35);
+        osc.connect(gain);
+        gain.connect(dest);
+        osc.start(now + idx * 0.06);
+        osc.stop(now + idx * 0.06 + 0.38);
+      });
+    } catch(e) {}
+  }
+
+  playPop() {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const dest = this.getDestination() || ctx.destination;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(140, now + 0.05);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+      osc.connect(gain);
+      gain.connect(dest);
+      osc.start(now);
+      osc.stop(now + 0.06);
     } catch(e) {}
   }
 }
@@ -238,11 +310,19 @@ class Spring1D {
 
   setTarget(target) {
     this.target = target;
+    const os = typeof window !== 'undefined' ? (window.polyOS || (typeof polyOS !== 'undefined' ? polyOS : null)) : null;
+    if (os && os.wakeRenderLoop) {
+      os.wakeRenderLoop();
+    }
   }
 
   flick(target, initialVelocity) {
     this.target = target;
     this.velocity = initialVelocity;
+    const os = typeof window !== 'undefined' ? (window.polyOS || (typeof polyOS !== 'undefined' ? polyOS : null)) : null;
+    if (os && os.wakeRenderLoop) {
+      os.wakeRenderLoop();
+    }
   }
 
   update(dt) {
@@ -283,7 +363,11 @@ class WindowInstance {
     this.isMaximized = false;
     this.isMinimized = false;
     this.isFrozen = false;
+    this.isBackgroundRunning = false;
+    this.keepAlive = false;
     this.lastActiveTime = Date.now();
+    this._lastRenderW = null;
+    this._lastRenderH = null;
     this.contentHtml = contentHtml;
 
     this.element = null;
@@ -297,12 +381,13 @@ class WindowInstance {
     el.innerHTML = `
       <div class="window-titlebar">
         <div class="window-traffic-lights">
-          <button class="traffic-light btn-close" title="Close">✕</button>
+          <button class="traffic-light btn-close" title="Close (Shift+click to Force Quit)">✕</button>
           <button class="traffic-light btn-min" title="Minimize (Spring)">−</button>
           <button class="traffic-light btn-max" title="Aero Maximize / Full Screen">□</button>
         </div>
         <div class="window-title">${this.icon} ${this.title}</div>
         <div class="window-actions-right">
+          <button class="btn-send-display" title="Move to Secondary Display (Alt+Shift+Right)">🖥️²</button>
           <button class="btn-exit-fullscreen" title="Exit Full Screen (Esc)">⤡ Exit Full Screen</button>
         </div>
       </div>
@@ -311,13 +396,28 @@ class WindowInstance {
       </div>
     `;
 
+    // Multi-Monitor transfer button
+    const sendDisplayBtn = el.querySelector('.btn-send-display');
+    if (sendDisplayBtn) {
+      sendDisplayBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const os = window.polyOS || polyOS;
+        if (os && os.displayManager) {
+          os.displayManager.transferWindowToDisplay2(this.id);
+        }
+      });
+    }
+
     // Traffic light events
     const closeBtn = el.querySelector('.btn-close');
     if (closeBtn) {
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const os = window.polyOS || polyOS;
-        if (os) os.closeWindow(this.id);
+        if (os) {
+          const force = e.shiftKey || e.altKey;
+          os.closeWindow(this.id, force);
+        }
       });
     }
 
@@ -378,10 +478,120 @@ class WindowInstance {
       if (os) os.toggleMaximize(this.id);
     });
 
+    // 8-Directional resize handles
+    const dirs = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
+    dirs.forEach(dir => {
+      const handle = document.createElement('div');
+      handle.className = `window-resize-handle resize-${dir}`;
+      handle.dataset.dir = dir;
+      el.appendChild(handle);
+      this.initResize(handle, dir);
+    });
+
     this.element = el;
     this.el = el;
-    document.getElementById('workspace').appendChild(el);
+    const workspaceContainer = document.getElementById('workspace') || document.getElementById('desktop') || document.body;
+    if (workspaceContainer) workspaceContainer.appendChild(el);
     this.applyTransform();
+  }
+
+  initResize(handle, dir) {
+    let startX, startY;
+    let origX, origY, origW, origH;
+    let isResizing = false;
+
+    const onPointerDown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.isMaximized || this.snapZone) return;
+
+      isResizing = true;
+      const os = window.polyOS || (typeof polyOS !== 'undefined' ? polyOS : null);
+      if (os) {
+        os.focusWindow(this.id);
+        os.wakeRenderLoop();
+      }
+
+      startX = e.clientX;
+      startY = e.clientY;
+      origX = this.springX.current;
+      origY = this.springY.current;
+      origW = this.springW.current;
+      origH = this.springH.current;
+
+      document.body.classList.add('is-resizing-window');
+
+      const onPointerMove = (ev) => {
+        if (!isResizing) return;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+
+        let newX = origX;
+        let newY = origY;
+        let newW = origW;
+        let newH = origH;
+
+        const minW = 260;
+        const minH = 160;
+
+        if (dir.includes('e')) {
+          newW = Math.max(origW + dx, minW);
+        }
+        if (dir.includes('s')) {
+          newH = Math.max(origH + dy, minH);
+        }
+        if (dir.includes('w')) {
+          const potentialW = origW - dx;
+          if (potentialW >= minW) {
+            newW = potentialW;
+            newX = origX + dx;
+          } else {
+            newW = minW;
+            newX = origX + (origW - minW);
+          }
+        }
+        if (dir.includes('n')) {
+          const potentialH = origH - dy;
+          if (potentialH >= minH) {
+            newH = potentialH;
+            newY = Math.max(origY + dy, 38);
+          } else {
+            newH = minH;
+            newY = Math.max(origY + (origH - minH), 38);
+          }
+        }
+
+        this.springX.current = newX;
+        this.springX.setTarget(newX);
+        this.springY.current = newY;
+        this.springY.setTarget(newY);
+        this.springW.current = newW;
+        this.springW.setTarget(newW);
+        this.springH.current = newH;
+        this.springH.setTarget(newH);
+
+        this.restoreBounds = { x: newX, y: newY, w: newW, h: newH };
+        if (os) os.wakeRenderLoop();
+      };
+
+      const onPointerUp = () => {
+        if (!isResizing) return;
+        isResizing = false;
+        document.body.classList.remove('is-resizing-window');
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('mousemove', onPointerMove);
+        window.removeEventListener('mouseup', onPointerUp);
+      };
+
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('mousemove', onPointerMove);
+      window.addEventListener('mouseup', onPointerUp);
+    };
+
+    handle.addEventListener('pointerdown', onPointerDown);
+    handle.addEventListener('mousedown', onPointerDown);
   }
 
   initDrag(titlebar) {
@@ -454,6 +664,16 @@ class WindowInstance {
       this.springY.current = targetY;
       this.springY.setTarget(targetY);
 
+      // Multi-Monitor Boundary Transit Check (Right Edge to Display 2)
+      if (polyOS.displayManager && polyOS.displayManager.display2Connected && e.clientX >= window.innerWidth - 14) {
+        if (this.element) this.element.style.opacity = '0.55';
+        polyOS.hideSnapGhost();
+        polyOS.hideFancyZonesOverlay();
+        return;
+      } else if (this.element && this.element.style.opacity === '0.55') {
+        this.element.style.opacity = '1.0';
+      }
+
       // Check FancyZones (Shift key held) vs Magnetic Aero Snap Zones
       if (e.shiftKey) {
         polyOS.hideSnapGhost();
@@ -469,6 +689,16 @@ class WindowInstance {
       isDragging = false;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+
+      if (this.element) this.element.style.opacity = '1.0';
+
+      // Check if released across the Multi-Monitor right boundary
+      if (polyOS.displayManager && polyOS.displayManager.display2Connected && e.clientX >= window.innerWidth - 20) {
+        polyOS.hideSnapGhost();
+        polyOS.hideFancyZonesOverlay();
+        polyOS.displayManager.transferWindowToDisplay2(this.id);
+        return;
+      }
 
       // Check if released in a FancyZone or standard Aero Snap zone
       if (polyOS.activeFancyZoneIndex !== null) {
@@ -523,7 +753,7 @@ class WindowInstance {
       this.element.style.border = 'none';
       this.element.style.boxShadow = 'none';
       this.element.style.margin = '0px';
-      this.element.style.zIndex = '99999';
+      this.element.style.zIndex = this.element.classList.contains('focused') ? '100' : '20';
     } else {
       this.element.style.position = 'absolute';
       this.element.style.top = '';
@@ -534,15 +764,26 @@ class WindowInstance {
       this.element.style.border = '';
       this.element.style.boxShadow = '';
       this.element.style.margin = '';
-      this.element.style.zIndex = this.element.classList.contains('focused') ? '100' : '10';
+      if (!this.element.style.zIndex) {
+        this.element.style.zIndex = this.element.classList.contains('focused') ? '100' : '10';
+      }
       this.element.style.transform = `translate3d(${this.springX.current}px, ${this.springY.current}px, 0) scale(${this.springScale.current})`;
-      this.element.style.width = `${Math.max(this.springW.current, 200)}px`;
-      this.element.style.height = `${Math.max(this.springH.current, 120)}px`;
+
+      const targetW = Math.round(Math.max(this.springW.current, 200));
+      const targetH = Math.round(Math.max(this.springH.current, 120));
+      if (this._lastRenderW !== targetW) {
+        this.element.style.width = `${targetW}px`;
+        this._lastRenderW = targetW;
+      }
+      if (this._lastRenderH !== targetH) {
+        this.element.style.height = `${targetH}px`;
+        this._lastRenderH = targetH;
+      }
     }
     this.element.style.opacity = `${Math.max(this.springOpacity.current, 0)}`;
     const os = window.polyOS || polyOS;
     const isCurrentWs = !os || (this.workspace === os.currentWorkspace);
-    if (this.springOpacity.current < 0.05 || !isCurrentWs || this.isMinimized) {
+    if (this.springOpacity.current < 0.05 || !isCurrentWs || this.isMinimized || this.isBackgroundRunning) {
       this.element.style.display = 'none';
     } else {
       this.element.style.display = 'flex';
@@ -550,15 +791,542 @@ class WindowInstance {
   }
 }
 
+// --- 2.5 Poly IndexedDB Persistent Virtual File System Engine (Issue 13) ---
+class PolyVFS {
+  constructor() {
+    this.dbName = 'PolyOS_VFS_DB';
+    this.dbVersion = 1;
+    this.storeName = 'files';
+    this.db = null;
+    this.readyPromise = this.initDB();
+  }
+
+  initDB() {
+    return new Promise((resolve) => {
+      if (!window.indexedDB) {
+        console.warn('[PolyVFS] IndexedDB not available, fallback to in-memory');
+        resolve(null);
+        return;
+      }
+      const req = window.indexedDB.open(this.dbName, this.dbVersion);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          const store = db.createObjectStore(this.storeName, { keyPath: 'path' });
+          store.createIndex('folder', 'folder', { unique: false });
+        }
+      };
+      req.onsuccess = (e) => {
+        this.db = e.target.result;
+        this.seedDefaults().then(() => resolve(this.db));
+      };
+      req.onerror = () => {
+        console.warn('[PolyVFS] Failed to open IndexedDB');
+        resolve(null);
+      };
+    });
+  }
+
+  async seedDefaults() {
+    if (!this.db) return;
+    const count = await this.count();
+    if (count > 0) return; // already seeded
+
+    const defaults = [
+      // Projects
+      { path: 'Projects/poly-compositor', folder: 'Projects', name: 'poly-compositor', type: 'folder', meta: 'Rust • 14 files', tag: 'work', icon: '📁', content: '' },
+      { path: 'Projects/poly-daemon', folder: 'Projects', name: 'poly-daemon', type: 'folder', meta: 'cgroups v2 • 3 files', tag: 'urgent', icon: '📁', content: '' },
+      { path: 'Projects/poly-shell', folder: 'Projects', name: 'poly-shell', type: 'folder', meta: '120Hz UI • 5 files', tag: 'work', icon: '📁', content: '' },
+      { path: 'Projects/physics.rs', folder: 'Projects', name: 'physics.rs', type: 'code', meta: 'Rust Spring • 4.3 KB', tag: 'work', icon: '🦀', size: '4.3 KB', content: '// Poly OS Spring Physics Engine (IndexedDB VFS)\npub struct Spring1D {\n    pub current: f32,\n    pub target: f32,\n    pub velocity: f32,\n}\n' },
+      { path: 'Projects/polyd.py', folder: 'Projects', name: 'polyd.py', type: 'code', meta: 'Freezer • 7.7 KB', tag: 'urgent', icon: '🐍', size: '7.7 KB', content: '#!/usr/bin/env python3\n# Poly OS Background Task Supervisor\nimport os, sys\n' },
+      { path: 'Projects/poly-compositor/main.rs', folder: 'Projects/poly-compositor', name: 'main.rs', type: 'code', meta: 'Rust • 2.1 KB', tag: 'work', icon: '🦀', size: '2.1 KB', content: 'fn main() {\n    println!("Poly OS Compositor 120Hz Running");\n}\n' },
+      { path: 'Projects/poly-compositor/Cargo.toml', folder: 'Projects/poly-compositor', name: 'Cargo.toml', type: 'doc', meta: 'TOML • 450 B', tag: 'work', icon: '⚙️', size: '450 B', content: '[package]\nname = "poly-compositor"\nversion = "0.1.0"\n' },
+      { path: 'Projects/poly-daemon/polyd.service', folder: 'Projects/poly-daemon', name: 'polyd.service', type: 'doc', meta: 'Systemd • 320 B', tag: 'urgent', icon: '⚙️', size: '320 B', content: '[Unit]\nDescription=Poly OS Task Supervisor\n' },
+
+      // Documents
+      { path: 'Documents/SPECIFICATION.md', folder: 'Documents', name: 'SPECIFICATION.md', type: 'doc', meta: 'Markdown • 8.3 KB', tag: 'urgent', icon: '📄', size: '8.3 KB', content: '# Poly OS Architectural Specification\n\nPoly OS is a hybrid desktop operating system combining iOS physics with Windows multitasking.\n' },
+      { path: 'Documents/Poly_Whitepaper.pdf', folder: 'Documents', name: 'Poly_Whitepaper.pdf', type: 'pdf', meta: 'PDF Document • 4.2 MB', tag: 'work', icon: '📄', size: '4.2 MB', content: '[PDF Binary Document: Poly OS Architecture and Compositor Design]' },
+      { path: 'Documents/Roadmap_2026.txt', folder: 'Documents', name: 'Roadmap_2026.txt', type: 'doc', meta: 'Text Note • 1.8 KB', tag: 'personal', icon: '📝', size: '1.8 KB', content: 'Poly OS Roadmap 2026:\n1. 120Hz Compositor\n2. ZRAM Memory Manager\n3. IndexedDB VFS\n' },
+
+      // Downloads
+      { path: 'Downloads/120Hz_Demo.mp4', folder: 'Downloads', name: '120Hz_Demo.mp4', type: 'video', meta: 'H.265 • 18.5 MB', tag: 'personal', icon: '🎬', size: '18.5 MB', content: '' },
+      { path: 'Downloads/Cupertino_5K.heic', folder: 'Downloads', name: 'Cupertino_5K.heic', type: 'image', meta: '5K Image • 8.1 MB', tag: 'personal', icon: '🖼️', size: '8.1 MB', content: '' },
+      { path: 'Downloads/build-iso.sh', folder: 'Downloads', name: 'build-iso.sh', type: 'script', meta: 'Shell Script • 3.1 KB', tag: 'work', icon: '⚙️', size: '3.1 KB', content: '#!/usr/bin/env bash\necho "Building Poly OS Live ISO"\n' },
+
+      // Recents
+      { path: 'Recents/physics.rs', folder: 'Recents', name: 'physics.rs', type: 'code', meta: 'Rust Spring • 4.3 KB', tag: 'work', icon: '🦀', size: '4.3 KB', content: '// Poly OS Spring Physics Engine (IndexedDB VFS)\n' },
+      { path: 'Recents/SPECIFICATION.md', folder: 'Recents', name: 'SPECIFICATION.md', type: 'doc', meta: 'Markdown • 8.3 KB', tag: 'urgent', icon: '📄', size: '8.3 KB', content: '# Poly OS Architectural Specification\n' },
+      { path: 'Recents/polyd.py', folder: 'Recents', name: 'polyd.py', type: 'code', meta: 'Freezer • 7.7 KB', tag: 'urgent', icon: '🐍', size: '7.7 KB', content: '#!/usr/bin/env python3\n' }
+    ];
+
+    for (const item of defaults) {
+      await this.put(item);
+    }
+  }
+
+  count() {
+    return new Promise((resolve) => {
+      if (!this.db) { resolve(0); return; }
+      try {
+        const tx = this.db.transaction([this.storeName], 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const req = store.count();
+        req.onsuccess = () => resolve(req.result || 0);
+        req.onerror = () => resolve(0);
+      } catch(e) { resolve(0); }
+    });
+  }
+
+  put(item) {
+    return new Promise((resolve, reject) => {
+      if (!this.db) { resolve(false); return; }
+      try {
+        const tx = this.db.transaction([this.storeName], 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const req = store.put(item);
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => reject(req.error);
+      } catch(e) { resolve(false); }
+    });
+  }
+
+  get(path) {
+    return new Promise((resolve) => {
+      if (!this.db) { resolve(null); return; }
+      try {
+        const tx = this.db.transaction([this.storeName], 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const req = store.get(path);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch(e) { resolve(null); }
+    });
+  }
+
+  delete(path) {
+    return new Promise((resolve) => {
+      if (!this.db) { resolve(false); return; }
+      try {
+        const tx = this.db.transaction([this.storeName], 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const req = store.delete(path);
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => resolve(false);
+      } catch(e) { resolve(false); }
+    });
+  }
+
+  listFolder(folder) {
+    return new Promise((resolve) => {
+      if (!this.db) { resolve([]); return; }
+      try {
+        const tx = this.db.transaction([this.storeName], 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const index = store.index('folder');
+        const req = index.getAll(folder);
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      } catch(e) { resolve([]); }
+    });
+  }
+
+  listAll() {
+    return new Promise((resolve) => {
+      if (!this.db) { resolve([]); return; }
+      try {
+        const tx = this.db.transaction([this.storeName], 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      } catch(e) { resolve([]); }
+    });
+  }
+
+  async getStorageUsage() {
+    const all = await this.listAll();
+    let totalBytes = 0;
+    all.forEach(item => {
+      if (item.content) {
+        totalBytes += item.content.length;
+      }
+      totalBytes += (item.name ? item.name.length : 0) + (item.path ? item.path.length : 0) + 128;
+    });
+    return {
+      count: all.length,
+      bytes: totalBytes,
+      kb: (totalBytes / 1024).toFixed(1),
+      mb: (totalBytes / (1024 * 1024)).toFixed(2)
+    };
+  }
+
+  async readFile(nameOrPath) {
+    await this.readyPromise;
+    let item = await this.get(nameOrPath);
+    if (!item) {
+      // Look across folders by name
+      const all = await this.listAll();
+      item = all.find(f => f.name === nameOrPath || f.path.endsWith('/' + nameOrPath));
+    }
+    return item ? (item.content || '') : null;
+  }
+
+  async writeFile(name, content, folder = 'Projects', type = 'code', tag = 'work') {
+    await this.readyPromise;
+    const path = `${folder}/${name}`;
+    const sizeKb = (content.length / 1024).toFixed(1);
+    const ext = name.split('.').pop() || '';
+    let icon = '📄';
+    if (ext === 'rs') icon = '🦀';
+    else if (ext === 'py') icon = '🐍';
+    else if (ext === 'js' || ext === 'ts') icon = '📜';
+    else if (ext === 'html') icon = '🌐';
+    else if (ext === 'md') icon = '📝';
+
+    const item = {
+      path,
+      folder,
+      name,
+      type,
+      meta: `${ext.toUpperCase()} File • ${sizeKb} KB`,
+      tag,
+      icon,
+      size: `${sizeKb} KB`,
+      content
+    };
+
+    await this.put(item);
+    // Also record in Recents
+    await this.put({
+      ...item,
+      path: `Recents/${name}`,
+      folder: 'Recents'
+    });
+    return item;
+  }
+
+  async mkdir(folderName) {
+    await this.readyPromise;
+    const path = `Projects/${folderName}`;
+    const item = {
+      path,
+      folder: 'Projects',
+      name: folderName,
+      type: 'folder',
+      meta: 'Folder • 0 files',
+      tag: 'work',
+      icon: '📁',
+      content: ''
+    };
+    await this.put(item);
+    return item;
+  }
+
+  async readdir(folder = 'Projects') {
+    return await this.listFolder(folder);
+  }
+
+  async unlink(nameOrPath) {
+    await this.readyPromise;
+    let item = await this.get(nameOrPath);
+    if (!item) {
+      const all = await this.listAll();
+      item = all.find(f => f.name === nameOrPath || f.path.endsWith('/' + nameOrPath));
+    }
+    if (item) {
+      await this.delete(item.path);
+      // If also in Recents, delete from Recents
+      await this.delete(`Recents/${item.name}`);
+      return true;
+    }
+    return false;
+  }
+
+  async resetDefaults() {
+    await this.readyPromise;
+    if (!this.db) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = this.db.transaction([this.storeName], 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const req = store.clear();
+        req.onsuccess = async () => {
+          await this.seedDefaults();
+          resolve(true);
+        };
+        req.onerror = () => resolve(false);
+      } catch(e) { resolve(false); }
+    });
+  }
+}
+
+const polyVFS = new PolyVFS();
+window.polyVFS = polyVFS;
+
+// --- Multi-Monitor Simulation & Output Management Subsystem (Issue 15) ---
+class PolyDisplayManager {
+  constructor(os) {
+    this.os = os;
+    this.channel = null;
+    this.display2Connected = false;
+    this.display2WindowRef = null;
+    this.windowsOnDisplay2 = new Map(); // id -> window data
+    this.displayMode = 'extended'; // 'extended' or 'mirror'
+    this.relativePosition = 'right'; // 'right' or 'left'
+    this.primaryConfig = {
+      name: 'HDMI-A-1',
+      res: '2560×1440',
+      hz: 120,
+      scale: 1.0,
+      isPrimary: true
+    };
+    this.secondaryConfig = {
+      name: 'DP-1',
+      res: '3840×2160',
+      hz: 60,
+      scale: 1.5,
+      isPrimary: false
+    };
+    this.initChannel();
+  }
+
+  initChannel() {
+    if (typeof BroadcastChannel === 'undefined') return;
+    try {
+      this.channel = new BroadcastChannel('poly_display_channel');
+      this.channel.onmessage = (event) => this.handleMessage(event.data);
+
+      // Initial ping to check if Display 2 is already active
+      this.channel.postMessage({ type: 'PING', timestamp: Date.now() });
+
+      // Periodic vitality check
+      setInterval(() => {
+        if (this.channel) {
+          this.channel.postMessage({ type: 'PING', timestamp: Date.now() });
+        }
+      }, 5000);
+    } catch (e) {
+      console.warn('BroadcastChannel error:', e);
+    }
+  }
+
+  handleMessage(msg) {
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+      case 'DISPLAY2_CONNECTED':
+      case 'DISPLAY2_HEARTBEAT':
+      case 'PONG':
+        if (!this.display2Connected) {
+          this.display2Connected = true;
+          this.updateDisplayUI();
+          if (this.os && this.os.notifyIsland) {
+            this.os.notifyIsland('🖥️ Display 2 (DP-1 4K Extended) Linked');
+          }
+        }
+        break;
+
+      case 'WINDOW_RETURN':
+        // Window returned from Display 2 -> Display 1
+        if (msg.window) {
+          this.windowsOnDisplay2.delete(msg.window.id);
+          this.restoreWindowToDisplay1(msg.window);
+          this.updateDisplayUI();
+          if (this.os && this.os.notifyIsland) {
+            this.os.notifyIsland(`🖥️ Window "${msg.window.title || 'App'}" returned to Display 1`);
+          }
+        }
+        break;
+
+      case 'DISPLAY2_CLOSING':
+        // Fail-safe repatriation when secondary display window closes
+        this.display2Connected = false;
+        if (msg.windows && Array.isArray(msg.windows)) {
+          msg.windows.forEach(w => {
+            this.windowsOnDisplay2.delete(w.id);
+            this.restoreWindowToDisplay1(w);
+          });
+        } else {
+          this.windowsOnDisplay2.forEach(w => this.restoreWindowToDisplay1(w));
+          this.windowsOnDisplay2.clear();
+        }
+        this.updateDisplayUI();
+        if (this.os && this.os.notifyIsland) {
+          this.os.notifyIsland('🖥️ Secondary Display disconnected: Windows returned to Display 1');
+        }
+        break;
+
+      case 'WINDOW_CLOSED_ON_D2':
+        if (msg.id) {
+          this.windowsOnDisplay2.delete(msg.id);
+          this.os.windows.delete(msg.id);
+          this.os.updateDockIndicators();
+          this.os.renderTaskbarWindowStrip();
+          this.updateDisplayUI();
+        }
+        break;
+    }
+  }
+
+  openSecondaryDisplayWindow() {
+    if (this.display2WindowRef && !this.display2WindowRef.closed) {
+      this.display2WindowRef.focus();
+      return;
+    }
+    const screenW = Math.min(1120, window.screen.availWidth || 1120);
+    const screenH = Math.min(720, window.screen.availHeight || 720);
+    const left = (window.screenX || 0) + (window.outerWidth || 1200) + 20;
+    const top = window.screenY || 0;
+    this.display2WindowRef = window.open(
+      'display2.html',
+      'PolyDisplay2',
+      `width=${screenW},height=${screenH},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`
+    );
+    this.display2Connected = true;
+    this.updateDisplayUI();
+    if (this.os && this.os.notifyIsland) {
+      this.os.notifyIsland('🖥️ Detached Display 2 (DP-1 4K) Launched');
+    }
+  }
+
+  transferWindowToDisplay2(windowId) {
+    const win = this.os.windows.get(windowId);
+    if (!win) return;
+
+    if (!this.display2Connected || (this.display2WindowRef && this.display2WindowRef.closed)) {
+      this.openSecondaryDisplayWindow();
+      setTimeout(() => {
+        this.doTransferWindow(win);
+      }, 600);
+    } else {
+      this.doTransferWindow(win);
+    }
+  }
+
+  doTransferWindow(win) {
+    const winData = {
+      id: win.id,
+      title: win.title,
+      icon: win.icon,
+      contentHtml: win.contentHtml,
+      bounds: {
+        x: win.springX.current,
+        y: win.springY.current,
+        w: win.springW.current,
+        h: win.springH.current
+      },
+      workspace: win.workspace
+    };
+
+    this.windowsOnDisplay2.set(win.id, winData);
+
+    if (this.channel) {
+      this.channel.postMessage({
+        type: 'WINDOW_TRANSFER',
+        window: winData
+      });
+    }
+
+    if (win.element) {
+      win.element.remove();
+    }
+
+    this.os.updateDockIndicators();
+    this.os.renderTaskbarWindowStrip();
+    this.updateDisplayUI();
+    if (this.os && this.os.notifyIsland) {
+      this.os.notifyIsland(`🖥️ Window "${win.title}" moved to Display 2 (DP-1)`);
+    }
+    polyAudio.playSnap();
+  }
+
+  restoreWindowToDisplay1(winData) {
+    if (!winData) return;
+    this.windowsOnDisplay2.delete(winData.id);
+
+    const existing = this.os.windows.get(winData.id);
+    if (existing && existing.element && document.body.contains(existing.element)) {
+      return;
+    }
+
+    const x = Math.max(50, (window.innerWidth - (winData.bounds?.w || 760)) / 2);
+    const y = Math.max(60, (window.innerHeight - (winData.bounds?.h || 480)) / 2);
+    const w = winData.bounds?.w || 760;
+    const h = winData.bounds?.h || 480;
+
+    const restoredWin = new WindowInstance(
+      winData.id,
+      winData.title,
+      winData.icon,
+      x,
+      y,
+      w,
+      h,
+      winData.contentHtml,
+      winData.workspace || this.os.currentWorkspace
+    );
+    this.os.windows.set(winData.id, restoredWin);
+    this.os.focusWindow(winData.id);
+    this.os.updateDockIndicators();
+    this.os.renderTaskbarWindowStrip();
+  }
+
+  recallAllWindows() {
+    if (this.channel) {
+      this.channel.postMessage({ type: 'RECALL_ALL_WINDOWS' });
+    }
+    this.windowsOnDisplay2.forEach(w => this.restoreWindowToDisplay1(w));
+    this.windowsOnDisplay2.clear();
+    this.updateDisplayUI();
+    if (this.os && this.os.notifyIsland) {
+      this.os.notifyIsland('🖥️ All windows repatriated to Display 1');
+    }
+  }
+
+  recallWindow(id) {
+    const winData = this.windowsOnDisplay2.get(id);
+    if (winData) {
+      if (this.channel) {
+        this.channel.postMessage({ type: 'CLOSE_WINDOW_REMOTE', id });
+      }
+      this.restoreWindowToDisplay1(winData);
+      this.updateDisplayUI();
+    }
+  }
+
+  updateDisplayUI() {
+    const statusIndicator = document.getElementById('d2-status-indicator');
+    if (statusIndicator) {
+      if (this.display2Connected) {
+        statusIndicator.textContent = 'DP-1 Online (Connected)';
+        statusIndicator.style.color = '#30d158';
+      } else {
+        statusIndicator.textContent = 'DP-1 Offline (Click Open)';
+        statusIndicator.style.color = 'rgba(255,255,255,0.45)';
+      }
+    }
+  }
+}
+
 // --- 3. Poly OS Shell Controller ---
 class PolyOS {
   constructor() {
+    window.polyOS = this;
+    polyOS = this;
     this.windows = new Map();
+    this.displayManager = new PolyDisplayManager(this);
     this.activeWindowId = null;
     this.activeSnapZone = null;
-    this.dockMode = 'floating'; // 'floating' (iOS) or 'taskbar' (Windows)
+    this.dockMode = localStorage.getItem('poly_dock_mode') || 'floating'; // 'floating' (iOS) or 'taskbar' (Windows)
     this.dockPos = 'bottom';
-    this.dockAlign = 'center';  // 'center', 'start'
+    this.dockAlign = localStorage.getItem('poly_dock_align') || 'center';  // 'center', 'start'
+    this.wifiEnabled = localStorage.getItem('poly_wifi_enabled') !== 'false';
+    this.bluetoothEnabled = localStorage.getItem('poly_bluetooth_enabled') !== 'false';
+    this.polyDropMode = localStorage.getItem('poly_drop_mode') || 'Contacts Only';
+    this.aeroSnapEnabled = localStorage.getItem('poly_aero_snap') !== 'false';
+    this.freezerEnabled = localStorage.getItem('poly_freezer_enabled') !== 'false';
+    this.hwAccelEnabled = localStorage.getItem('poly_hw_accel') !== 'false';
+    this.displayScale = parseFloat(localStorage.getItem('poly_display_scale') || '1.0');
     this.nextWindowId = 1;
     this.isExposeActive = false;
     this.powerMode = 'balanced'; // 'low', 'balanced', 'turbo'
@@ -585,19 +1353,25 @@ class PolyOS {
     };
     this.installedApps = new Set(['files', 'browser', 'terminal', 'notes', 'music', 'telemetry', 'settings', 'store']);
     this.activeWallpaper = 'cupertino';
+    this.appearanceMode = localStorage.getItem('poly_appearance_mode') || 'auto'; // 'auto', 'dark', 'light'
     this.spotlightSelectedIndex = 0;
     this.spotlightCurrentResults = [];
     this.currentWorkspace = 1;
+    this.dragPayload = null; // Universal Inter-App Drag & Drop Payload (Issue 16)
+    this.isHtml5Dragging = false;
 
     this.initClock();
+    this.initAppearanceTheme();
     this.initAudioAndThemes();
     this.initEventListeners();
     this.initDockControls();
     this.initSpotlight();
     this.initWorkspaces();
     this.initDesktopFiles();
+    this.initDragDropSystem();
     this.initDynamicIslandExpansion();
     this.initSystemMenu();
+    this.initSystemTray();
     this.initSmartWidget();
     this.initQuickLook();
     this.immersiveWindowId = null;
@@ -646,7 +1420,7 @@ class PolyOS {
       if (e.key === 'Tab' && e.altKey && !e.ctrlKey) {
         e.preventDefault();
         if (!this.altTabState.active) {
-          const wins = Array.from(this.windows.values()).filter(w => !w.isMinimized && w.workspace === this.currentWorkspace);
+          const wins = Array.from(this.windows.values()).filter(w => !w.isMinimized && !w.isBackgroundRunning && w.workspace === this.currentWorkspace);
           if (wins.length === 0) return;
           this.altTabState.active = true;
           this.altTabState.windowList = wins;
@@ -705,6 +1479,7 @@ class PolyOS {
     const oppositeOccupied = Array.from(this.windows.values()).some(w => 
       w.id !== snappedWinId && 
       !w.isMinimized && 
+      !w.isBackgroundRunning &&
       w.workspace === this.currentWorkspace && 
       w.snapZone === targetZone
     );
@@ -716,6 +1491,7 @@ class PolyOS {
     const others = Array.from(this.windows.values()).filter(w => 
       w.id !== snappedWinId && 
       !w.isMinimized && 
+      !w.isBackgroundRunning && 
       w.workspace === this.currentWorkspace &&
       w.snapZone !== targetZone
     );
@@ -989,6 +1765,7 @@ class PolyOS {
       const oppositeOccupied = Array.from(this.windows.values()).some(w => 
         w.id !== win.id && 
         !w.isMinimized && 
+        !w.isBackgroundRunning &&
         w.workspace === this.currentWorkspace && 
         w.snapZone === targetZone
       );
@@ -1063,11 +1840,20 @@ class PolyOS {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    this.liveWallpaperMode = 'aurora';
+    this.liveWallpaperMode = localStorage.getItem('poly_live_wallpaper_mode') || 'aurora';
+    this.isWallpaperPaused = false;
+    if (this.liveWallpaperMode === 'off') {
+      canvas.style.opacity = '0';
+    }
 
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      this.wallpaperDpr = dpr;
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
     window.addEventListener('resize', resize);
@@ -1093,13 +1879,25 @@ class PolyOS {
 
     let t = 0;
     const render = () => {
+      // Pause wallpaper rendering when tab is hidden or when active workspace has a maximized window
+      const isHidden = typeof document !== 'undefined' && document.hidden;
+      const hasMaximizedWindow = this.windows && Array.from(this.windows.values()).some(w => 
+        w.isMaximized && !w.isMinimized && !w.isFrozen && (!w.workspace || w.workspace === this.currentWorkspace)
+      );
+
+      if (isHidden || hasMaximizedWindow) {
+        this.isWallpaperPaused = true;
+        setTimeout(() => requestAnimationFrame(render), 350);
+        return;
+      }
+      this.isWallpaperPaused = false;
+
       t += 0.015;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
 
       if (this.liveWallpaperMode === 'aurora') {
-        const w = canvas.width;
-        const h = canvas.height;
-
         for (let band = 0; band < 3; band++) {
           ctx.beginPath();
           ctx.moveTo(0, h);
@@ -1127,9 +1925,6 @@ class PolyOS {
           ctx.fill();
         }
       } else if (this.liveWallpaperMode === 'particles') {
-        const w = canvas.width;
-        const h = canvas.height;
-
         for (let i = 0; i < particles.length; i++) {
           const p = particles[i];
           p.x += p.vx;
@@ -1173,8 +1968,6 @@ class PolyOS {
           ctx.fill();
         }
       } else if (this.liveWallpaperMode === 'cupertino') {
-        const w = canvas.width;
-        const h = canvas.height;
         const pulse = 0.85 + Math.sin(t * 0.8) * 0.15;
         const grad = ctx.createRadialGradient(w * 0.5, h * 0.45, 100 * pulse, w * 0.5, h * 0.5, w * 0.7);
         grad.addColorStop(0, 'rgba(28, 38, 70, 0.35)');
@@ -1190,7 +1983,10 @@ class PolyOS {
 
     const liveWallBtn = document.getElementById('ctx-live-wallpaper');
     if (liveWallBtn) {
-      liveWallBtn.addEventListener('click', () => {
+      liveWallBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ctxMenu = document.getElementById('desktop-context-menu');
+        if (ctxMenu) ctxMenu.classList.add('hidden');
         this.cycleLiveWallpaper();
       });
     }
@@ -1202,6 +1998,15 @@ class PolyOS {
           this.cycleLiveWallpaper();
         }
       }
+      if ((e.key === 'w' || e.key === 'W') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+        if (activeTag !== 'input' && activeTag !== 'textarea') {
+          const wallpapers = ['cupertino', 'redmond', 'aurora', 'cyber'];
+          const nextIdx = (wallpapers.indexOf(this.activeWallpaper) + 1) % wallpapers.length;
+          this.setWallpaper(wallpapers[nextIdx]);
+          this.notifyIsland(`🖼️ Switched wallpaper to ${wallpapers[nextIdx]}`);
+        }
+      }
     });
   }
 
@@ -1209,6 +2014,7 @@ class PolyOS {
     const modes = ['aurora', 'particles', 'cupertino', 'off'];
     const nextIdx = (modes.indexOf(this.liveWallpaperMode) + 1) % modes.length;
     this.liveWallpaperMode = modes[nextIdx];
+    localStorage.setItem('poly_live_wallpaper_mode', this.liveWallpaperMode);
     const canvas = document.getElementById('live-wallpaper-canvas');
     if (canvas) {
       canvas.style.opacity = (this.liveWallpaperMode === 'off') ? '0' : '0.92';
@@ -1229,6 +2035,15 @@ class PolyOS {
       } catch(e) {}
     }
 
+    // Clean desktop on refresh: widgets do NOT automatically load unless user explicitly enabled them
+    const savedWidgetPref = localStorage.getItem('poly_desktop_widgets_visible');
+    const showWidgets = (savedWidgetPref === 'true'); // Default to false (clean desktop)
+    if (!showWidgets) {
+      document.body.classList.add('desktop-widgets-hidden');
+    } else {
+      document.body.classList.remove('desktop-widgets-hidden');
+    }
+
     // Apply saved positions if present
     widgets.forEach(w => {
       const id = w.dataset.widgetId;
@@ -1238,6 +2053,31 @@ class PolyOS {
         w.style.right = 'auto';
         w.style.bottom = 'auto';
       }
+
+      // Check if this specific widget was dismissed
+      if (id && localStorage.getItem(`poly_widget_hidden_${id}`) === 'true') {
+        w.classList.add('hidden');
+      }
+    });
+
+    // Individual widget close/dismiss buttons
+    document.querySelectorAll('.widget-close-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const widget = btn.closest('.desktop-widget');
+        if (widget) {
+          widget.style.transition = 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+          widget.style.opacity = '0';
+          widget.style.transform = 'scale(0.9) translateY(-10px)';
+          setTimeout(() => {
+            widget.classList.add('hidden');
+            const wid = widget.dataset.widgetId;
+            if (wid) localStorage.setItem(`poly_widget_hidden_${wid}`, 'true');
+          }, 250);
+          polyAudio.playPop();
+          this.notifyIsland('📌 Widget dismissed. Toggle from Right-Click or Control Center.');
+        }
+      });
     });
 
     // Make each widget freely draggable anywhere on screen
@@ -1367,13 +2207,56 @@ class PolyOS {
       });
     });
 
+    const updateWidgetsStatusUI = () => {
+      const isHidden = document.body.classList.contains('desktop-widgets-hidden');
+      const ccSub = document.getElementById('cc-widgets-status');
+      if (ccSub) ccSub.textContent = isHidden ? 'Hidden' : 'Visible';
+      const ccBtn = document.getElementById('toggle-desktop-widgets');
+      if (ccBtn) {
+        if (isHidden) ccBtn.classList.remove('active');
+        else ccBtn.classList.add('active');
+      }
+      const ctxToggleSpan = document.querySelector('#ctx-toggle-widgets span');
+      if (ctxToggleSpan) {
+        ctxToggleSpan.textContent = isHidden ? '🧩 Show Desktop Widgets' : '🧩 Hide Desktop Widgets';
+      }
+    };
+    updateWidgetsStatusUI();
+
+    const toggleWidgets = () => {
+      document.body.classList.toggle('desktop-widgets-hidden');
+      const isHidden = document.body.classList.contains('desktop-widgets-hidden');
+      localStorage.setItem('poly_desktop_widgets_visible', isHidden ? 'false' : 'true');
+      if (!isHidden) {
+        widgets.forEach(w => {
+          w.classList.remove('hidden');
+          w.style.opacity = '';
+          w.style.transform = '';
+          const wid = w.dataset.widgetId;
+          if (wid) localStorage.removeItem(`poly_widget_hidden_${wid}`);
+        });
+      }
+      updateWidgetsStatusUI();
+      const ctxMenu = document.getElementById('desktop-context-menu');
+      if (ctxMenu) ctxMenu.classList.add('hidden');
+      this.notifyIsland(isHidden ? '🧩 Desktop Widgets Hidden' : '🧩 Desktop Widgets Visible');
+      polyAudio.playClick();
+    };
+    this.toggleWidgets = toggleWidgets;
+
     const toggleWidgetsBtn = document.getElementById('ctx-toggle-widgets');
     if (toggleWidgetsBtn) {
-      toggleWidgetsBtn.addEventListener('click', () => {
-        document.body.classList.toggle('desktop-widgets-hidden');
-        const isHidden = document.body.classList.contains('desktop-widgets-hidden');
-        this.notifyIsland(isHidden ? '🧩 Desktop Widgets Hidden' : '🧩 Desktop Widgets Visible');
-        polyAudio.playClick();
+      toggleWidgetsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleWidgets();
+      });
+    }
+
+    const ccWidgetsBtn = document.getElementById('toggle-desktop-widgets');
+    if (ccWidgetsBtn) {
+      ccWidgetsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleWidgets();
       });
     }
   }
@@ -1605,11 +2488,86 @@ class PolyOS {
 
   initClock() {
     const updateTime = () => {
-      const now = new Date();
-      document.getElementById('system-clock').textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const clock = document.getElementById('system-clock');
+      if (clock) {
+        const now = new Date();
+        clock.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
     };
     updateTime();
     setInterval(updateTime, 1000);
+  }
+
+  initAppearanceTheme() {
+    this.applyAppearance(this.appearanceMode, false);
+    
+    // Check auto theme periodically (every minute)
+    setInterval(() => {
+      if (this.appearanceMode === 'auto') {
+        this.applyAppearance('auto', true);
+      }
+    }, 60000);
+  }
+
+  setAppearance(mode) {
+    if (!['auto', 'dark', 'light'].includes(mode)) return;
+    this.appearanceMode = mode;
+    localStorage.setItem('poly_appearance_mode', mode);
+    this.applyAppearance(mode, true);
+    this.notifyIsland(`🎨 Appearance: ${mode.toUpperCase()} Theme Activated`);
+    polyAudio.playClick();
+  }
+
+  applyAppearance(mode, animate = true) {
+    const isAuto = (mode === 'auto');
+    let effectiveLight = false;
+
+    if (isAuto) {
+      const hour = new Date().getHours();
+      // Auto: Light mode between 7 AM and 7 PM (19:00)
+      effectiveLight = (hour >= 7 && hour < 19);
+    } else {
+      effectiveLight = (mode === 'light');
+    }
+
+    if (animate) {
+      document.body.classList.add('theme-transitioning');
+      setTimeout(() => {
+        document.body.classList.remove('theme-transitioning');
+      }, 350);
+    }
+
+    if (effectiveLight) {
+      document.body.classList.add('light-theme');
+    } else {
+      document.body.classList.remove('light-theme');
+    }
+
+    // Update settings controls if open
+    document.querySelectorAll('.appearance-theme-card').forEach(card => {
+      if (card.dataset.themeMode === mode) {
+        card.classList.add('active');
+      } else {
+        card.classList.remove('active');
+      }
+    });
+
+    const activeModeLabel = document.getElementById('appearance-active-mode-label');
+    if (activeModeLabel) {
+      activeModeLabel.textContent = `${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode (${effectiveLight ? 'Light Theme Active' : 'Dark Theme Active'})`;
+    }
+
+    // Update Control Center appearance toggle if present
+    const ccThemeBtn = document.getElementById('toggle-appearance-theme');
+    if (ccThemeBtn) {
+      const iconSpan = ccThemeBtn.querySelector('.icon');
+      const titleSpan = ccThemeBtn.querySelector('.title');
+      const subSpan = ccThemeBtn.querySelector('.subtitle');
+      if (iconSpan) iconSpan.textContent = mode === 'auto' ? '🌓' : (effectiveLight ? '☀️' : '🌙');
+      if (titleSpan) titleSpan.textContent = mode === 'auto' ? 'Auto Theme' : (effectiveLight ? 'Light Mode' : 'Dark Mode');
+      if (subSpan) subSpan.textContent = mode === 'auto' ? 'Auto (Time-based)' : (effectiveLight ? 'Light Active' : 'Dark Active');
+      ccThemeBtn.classList.toggle('active', effectiveLight || mode === 'auto');
+    }
   }
 
   setWallpaper(name) {
@@ -1633,11 +2591,77 @@ class PolyOS {
       }
     });
 
-    // Control center volume slider
+    // Control center volume slider with continuous masterGain attenuation
     const volSlider = document.getElementById('volume-slider');
     if (volSlider) {
       volSlider.addEventListener('input', (e) => {
-        polyAudio.enabled = (parseInt(e.target.value) > 0);
+        polyAudio.setVolume(e.target.value);
+        const soundToggle = document.getElementById('sound-feedback-toggle');
+        if (soundToggle) {
+          soundToggle.checked = parseInt(e.target.value) > 0;
+        }
+      });
+    }
+
+    // Control center screen brightness slider
+    const brightSlider = document.getElementById('brightness-slider');
+    const brightOverlay = document.getElementById('screen-brightness-overlay');
+    if (brightSlider) {
+      const savedVal = localStorage.getItem('poly_screen_brightness') || '85';
+      brightSlider.value = savedVal;
+      const setScreenBrightness = (val) => {
+        const num = parseInt(val, 10);
+        const dimOpacity = Math.max(0, Math.min(0.82, (100 - num) / 100 * 0.85));
+        if (brightOverlay) brightOverlay.style.opacity = dimOpacity;
+      };
+      setScreenBrightness(savedVal);
+
+      brightSlider.addEventListener('input', (e) => {
+        setScreenBrightness(e.target.value);
+        localStorage.setItem('poly_screen_brightness', e.target.value);
+      });
+    }
+
+    // Control Center Media Controls
+    const ccPlayBtn = document.getElementById('play-pause-btn');
+    const ccPrevBtn = document.getElementById('cc-media-prev');
+    const ccNextBtn = document.getElementById('cc-media-next');
+
+    const updateCCMediaUI = () => {
+      if (ccPlayBtn) ccPlayBtn.textContent = polyAudio.musicPlaying ? '⏸' : '▶';
+      const ccSong = document.getElementById('cc-media-title');
+      if (ccSong && polyAudio.tracks[polyAudio.currentTrackIndex]) {
+        ccSong.textContent = polyAudio.tracks[polyAudio.currentTrackIndex].title;
+      }
+    };
+
+    if (ccPlayBtn) {
+      ccPlayBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        polyAudio.toggleMusic();
+        updateCCMediaUI();
+        this.notifyIsland(polyAudio.musicPlaying ? `🎵 Playing: ${polyAudio.tracks[polyAudio.currentTrackIndex].title}` : '⏸ Audio Paused');
+        this.updateSystemTray();
+      });
+    }
+
+    if (ccPrevBtn) {
+      ccPrevBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tr = polyAudio.prevTrack();
+        updateCCMediaUI();
+        this.notifyIsland(`⏮ ${tr.title}`);
+        this.updateSystemTray();
+      });
+    }
+
+    if (ccNextBtn) {
+      ccNextBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tr = polyAudio.nextTrack();
+        updateCCMediaUI();
+        this.notifyIsland(`⏭ ${tr.title}`);
+        this.updateSystemTray();
       });
     }
   }
@@ -1706,8 +2730,8 @@ class PolyOS {
     });
 
     if (input) {
-      input.addEventListener('input', (e) => {
-        this.updateSpotlightResults(e.target.value.trim());
+      input.addEventListener('input', async (e) => {
+        await this.updateSpotlightResults(e.target.value.trim());
       });
 
       input.addEventListener('keydown', (e) => {
@@ -1731,20 +2755,185 @@ class PolyOS {
     }
   }
 
-  updateSpotlightResults(query) {
+  // --- Fuzzy String Matching Engine (Issue 14) ---
+  fuzzyScore(query, target, extraKeywords = '') {
+    if (!query) return 100;
+    const q = query.toLowerCase().trim();
+    const t = target.toLowerCase();
+    const full = (target + ' ' + extraKeywords).toLowerCase();
+
+    // Exact matches
+    if (t === q) return 1000;
+    if (t.startsWith(q)) return 600 + (100 - t.length);
+
+    // Initialisms (e.g. "cs" -> "Code Studio", "vfs" -> "Virtual File System", "ts" -> "Terminal & Shell")
+    const words = t.split(/[\s\-_\.]+/);
+    const initials = words.map(w => w[0]).join('');
+    if (initials === q || initials.startsWith(q)) return 550;
+
+    // Substring match in primary target
+    const subIdx = t.indexOf(q);
+    if (subIdx !== -1) {
+      return 450 - subIdx * 5;
+    }
+
+    // Substring match in extra keywords / description
+    const kwIdx = full.indexOf(q);
+    if (kwIdx !== -1) {
+      return 350 - kwIdx * 2;
+    }
+
+    // Subsequence match in target
+    let qIdx = 0;
+    let score = 0;
+    let prevIdx = -2;
+    for (let i = 0; i < t.length && qIdx < q.length; i++) {
+      if (t[i] === q[qIdx]) {
+        score += 25;
+        if (i === prevIdx + 1) score += 30; // contiguous letters bonus
+        if (i === 0 || /[\s\-_\.]/.test(t[i - 1])) score += 35; // word boundary bonus
+        prevIdx = i;
+        qIdx++;
+      }
+    }
+    if (qIdx === q.length) {
+      return Math.max(score, 80);
+    }
+
+    // Subsequence match in full string
+    let fullQIdx = 0;
+    let fullScore = 0;
+    for (let i = 0; i < full.length && fullQIdx < q.length; i++) {
+      if (full[i] === q[fullQIdx]) {
+        fullScore += 15;
+        fullQIdx++;
+      }
+    }
+    if (fullQIdx === q.length) {
+      return Math.max(fullScore, 40);
+    }
+
+    // Levenshtein distance fallback for typo tolerance if query length >= 3
+    if (q.length >= 3) {
+      for (const w of words) {
+        if (Math.abs(w.length - q.length) <= 2) {
+          const dist = this.levenshteinDist(q, w);
+          if (dist <= (q.length > 5 ? 2 : 1)) {
+            return 120 - dist * 35;
+          }
+        }
+      }
+    }
+
+    return 0;
+  }
+
+  levenshteinDist(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1];
+        else dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  highlightMatch(text, query) {
+    if (!query || !text) return text;
+    const q = query.trim().toLowerCase();
+    const t = text.toLowerCase();
+    const idx = t.indexOf(q);
+    if (idx !== -1) {
+      return text.substring(0, idx) +
+        `<span class="spotlight-match-hl">${text.substring(idx, idx + q.length)}</span>` +
+        text.substring(idx + q.length);
+    }
+    let res = '';
+    let qIdx = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (qIdx < q.length && text[i].toLowerCase() === q[qIdx]) {
+        res += `<span class="spotlight-match-hl">${text[i]}</span>`;
+        qIdx++;
+      } else {
+        res += text[i];
+      }
+    }
+    return res;
+  }
+
+  tryEvaluateMath(str) {
+    try {
+      let cleaned = str.trim().toLowerCase();
+
+      // Conversions: 120 fps to ms -> 8.33 ms
+      const fpsMatch = cleaned.match(/^(\d+(?:\.\d+)?)\s*(?:fps|hz)\s*(?:to\s*ms)?$/i);
+      if (fpsMatch) {
+        const hz = parseFloat(fpsMatch[1]);
+        if (hz > 0) {
+          const ms = (1000 / hz).toFixed(2);
+          return `${ms} ms (${hz} Hz frame time)`;
+        }
+      }
+
+      // Memory conversions: e.g. 16 gb to mb, 2048 mb to gb
+      const gbMatch = cleaned.match(/^(\d+(?:\.\d+)?)\s*gb\s*to\s*mb$/i);
+      if (gbMatch) return `${parseFloat(gbMatch[1]) * 1024} MB`;
+
+      const mbMatch = cleaned.match(/^(\d+(?:\.\d+)?)\s*mb\s*to\s*gb$/i);
+      if (mbMatch) return `${(parseFloat(mbMatch[1]) / 1024).toFixed(2)} GB`;
+
+      // Percent of: e.g. 20% of 500
+      cleaned = cleaned.replace(/(\d+(?:\.\d+)?)\s*%\s*(?:of)?\s*(\d+(?:\.\d+)?)/g, '($1 / 100 * $2)');
+      // Power: 2^8 -> 2**8
+      cleaned = cleaned.replace(/\^/g, '**');
+      // Functions
+      cleaned = cleaned.replace(/sqrt\(([^)]+)\)/g, 'Math.sqrt($1)');
+      cleaned = cleaned.replace(/sin\(([^)]+)\)/g, 'Math.sin($1)');
+      cleaned = cleaned.replace(/cos\(([^)]+)\)/g, 'Math.cos($1)');
+      cleaned = cleaned.replace(/abs\(([^)]+)\)/g, 'Math.abs($1)');
+      cleaned = cleaned.replace(/log\(([^)]+)\)/g, 'Math.log10($1)');
+      cleaned = cleaned.replace(/ln\(([^)]+)\)/g, 'Math.log($1)');
+      cleaned = cleaned.replace(/\bpi\b/g, 'Math.PI');
+      cleaned = cleaned.replace(/\be\b/g, 'Math.E');
+
+      // Only allow safe math tokens
+      if (!/^[\d\s\+\-\*\/\.\(\)\%\,Math\.\w]+$/.test(cleaned)) {
+        return null;
+      }
+      if (!/\d/.test(cleaned)) return null;
+
+      const fn = new Function(`return (${cleaned});`);
+      const val = fn();
+      if (typeof val === 'number' && !isNaN(val) && isFinite(val)) {
+        return Math.round(val * 100000) / 100000;
+      }
+      return null;
+    } catch(e) {
+      return null;
+    }
+  }
+
+  async updateSpotlightResults(query) {
     this.spotlightSelectedIndex = 0;
-    const results = [];
+    this.activeSpotlightQuery = query;
+    const candidates = [];
 
     // 1. Math calculation detection
     if (query.length > 0) {
       const mathResult = this.tryEvaluateMath(query);
       if (mathResult !== null) {
-        results.push({
+        candidates.push({
           type: 'calc',
+          category: 'Calculator & Conversions',
           icon: '🧮',
           title: `${mathResult}`,
-          subtitle: `Math calculation result for: ${query}`,
-          badge: 'Copy Result',
+          subtitle: `Calculation & unit conversion for: "${query}"`,
+          badge: 'Copy',
+          score: 2000, // Always priority when valid math
           action: () => {
             navigator.clipboard?.writeText(String(mathResult));
             this.notifyIsland(`📋 Copied: ${mathResult}`);
@@ -1754,33 +2943,33 @@ class PolyOS {
       }
     }
 
-    // 2. Apps database
+    // 2. Applications Registry
     const allApps = [
-      { id: 'files', name: 'Files & Workspace', icon: '📁', desc: 'Browse folders, NVMe SSD, tags & projects', category: 'App' },
-      { id: 'browser', name: 'Poly Browser', icon: '🌐', desc: 'Fast, decoupled 120 FPS web engine', category: 'App' },
-      { id: 'terminal', name: 'Terminal & Shell', icon: '⌨️', desc: 'Preemptible Linux bash shell & cgroups telemetry', category: 'App' },
-      { id: 'notes', name: 'Notes & Ideas', icon: '📝', desc: 'Fluid scratchpad & markdown notepad', category: 'App' },
-      { id: 'music', name: 'Poly Music', icon: '🎵', desc: 'Zero-friction player with PipeWire audio lease', category: 'App' },
-      { id: 'telemetry', name: 'Process Monitor (polyd)', icon: '⚡', desc: 'Real-time cgroups v2 background process tree', category: 'App' },
-      { id: 'store', name: 'Poly App Store', icon: '🛍️', desc: 'Package manager & app ecosystem', category: 'App' },
-      { id: 'settings', name: 'System Settings', icon: '⚙️', desc: 'Display 120Hz, wallpapers, sound & energy', category: 'App' },
-      { id: 'code', name: 'Poly Code Studio', icon: '💻', desc: 'Developer IDE with syntax tabs & runner', category: 'App' },
-      { id: 'canvas', name: 'Vector Canvas', icon: '🎨', desc: 'Freehand sketching & whiteboard canvas', category: 'App' },
-      { id: 'arcade', name: 'Retro Arcade (Pong)', icon: '🕹️', desc: '120Hz smooth physics arcade game', category: 'App' },
-      { id: 'calculator', name: 'Poly Calculator', icon: '🧮', desc: 'Scientific math & equations engine', category: 'App' }
+      { id: 'files', name: 'Files & Workspace', icon: '📁', desc: 'Browse folders, NVMe SSD, tags & projects', keywords: 'explorer directory documents downloads vfs storage' },
+      { id: 'code', name: 'Poly Code Studio', icon: '💻', desc: 'Developer IDE with syntax tabs, Monaco engine & runner', keywords: 'ide editor code studio rust python javascript html compiler script' },
+      { id: 'terminal', name: 'Terminal & Shell', icon: '⌨️', desc: 'Preemptible Linux bash shell & cgroups telemetry', keywords: 'cli console bash sh terminal command line prompt' },
+      { id: 'browser', name: 'Poly Browser', icon: '🌐', desc: 'Fast, decoupled 120 FPS web engine', keywords: 'web internet chrome safari html www surf' },
+      { id: 'notes', name: 'Notes & Ideas', icon: '📝', desc: 'Fluid scratchpad & markdown notepad', keywords: 'memo scratchpad markdown text document editor' },
+      { id: 'store', name: 'Poly App Store', icon: '🛍️', desc: 'Package manager & app ecosystem', keywords: 'shop market packages download install software' },
+      { id: 'settings', name: 'System Settings', icon: '⚙️', desc: 'Display 120Hz, appearance, wallpapers, sound & energy', keywords: 'preferences config control hardware personalization' },
+      { id: 'telemetry', name: 'Process Monitor (polyd)', icon: '⚡', desc: 'Real-time cgroups v2 background process tree', keywords: 'task manager cpu ram zram monitor memory' },
+      { id: 'music', name: 'Poly Music', icon: '🎵', desc: 'Zero-friction audio player with PipeWire lease', keywords: 'audio songs mp3 media player sound' },
+      { id: 'canvas', name: 'Vector Canvas', icon: '🎨', desc: 'Freehand sketching & whiteboard canvas', keywords: 'drawing paint art sketch draw' },
+      { id: 'arcade', name: 'Retro Arcade (Pong)', icon: '🕹️', desc: '120Hz smooth physics arcade game', keywords: 'game play entertainment retro pong' },
+      { id: 'calculator', name: 'Poly Calculator', icon: '🧮', desc: 'Scientific math & equations engine', keywords: 'math calculate numbers scientific equation' }
     ];
 
-    const qLower = query.toLowerCase();
-
-    // Filter apps
     allApps.forEach(app => {
-      if (!query || app.name.toLowerCase().includes(qLower) || app.desc.toLowerCase().includes(qLower) || app.id.includes(qLower)) {
-        results.push({
+      const score = this.fuzzyScore(query, app.name, `${app.desc} ${app.keywords} ${app.id}`);
+      if (!query || score > 0) {
+        candidates.push({
           type: 'app',
+          category: 'Applications',
           icon: app.icon,
           title: app.name,
           subtitle: app.desc,
           badge: this.installedApps.has(app.id) ? 'Installed' : 'Store App',
+          score: query ? score + 50 : (app.id === 'files' || app.id === 'code' || app.id === 'terminal' ? 100 : 50),
           action: () => {
             this.launchApp(app.id);
             polyAudio.playClick();
@@ -1789,12 +2978,88 @@ class PolyOS {
       }
     });
 
-    // 3. System Actions
+    // 3. Virtual File System Indexing (from IndexedDB via PolyVFS)
+    if (window.polyVFS) {
+      try {
+        const vfsFiles = await window.polyVFS.listAll();
+        if (vfsFiles && vfsFiles.length > 0) {
+          vfsFiles.forEach(f => {
+            const isFolder = f.type === 'folder';
+            const keywords = `${f.folder} ${f.type || ''} ${f.tag || ''} virtual file persistent indexeddb ${f.meta || ''}`;
+            const score = this.fuzzyScore(query, f.name, keywords);
+            if (!query ? (f.folder === 'Projects' || f.folder === 'Recents') : score > 0) {
+              const isCode = f.type === 'code' || /\.(rs|py|js|ts|html|md|txt|json|sh)$/i.test(f.name);
+              candidates.push({
+                type: 'file',
+                category: 'Files (IndexedDB VFS)',
+                icon: f.icon || (isFolder ? '📁' : '📄'),
+                title: f.name,
+                subtitle: `${f.folder}/ • ${f.meta || (f.size || 'VFS')}`,
+                badge: isFolder ? 'Folder' : (isCode ? 'Code' : 'Document'),
+                score: query ? score + 30 : 60,
+                action: () => {
+                  if (isFolder) {
+                    this.launchApp('files');
+                  } else if (isCode) {
+                    this.launchApp('code', f.name);
+                  } else {
+                    this.openQuickLook(f.name, f.type, f.size);
+                  }
+                  polyAudio.playClick();
+                }
+              });
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    // 4. System Settings Deep-Link Panels
+    const settingsPanels = [
+      { id: 'appearance', title: 'Appearance & Theme Engine', icon: '🌓', desc: 'Dark theme, light theme, and automated schedule mode', keywords: 'appearance theme dark light auto mode colors personalization' },
+      { id: 'display', title: 'Display & 120Hz Fluidity', icon: '🖥️', desc: 'Configure display refresh rate (120Hz / 60Hz), ProMotion physics', keywords: 'display 120hz hz 60hz refresh rate monitor screen promotion vsync' },
+      { id: 'themes', title: 'Wallpapers & Acoustic Sounds', icon: '🎨', desc: 'Cupertino, Redmond, Aurora wallpapers and system sound feedback', keywords: 'wallpaper background sound audio chime click themes' },
+      { id: 'energy', title: 'Energy Engine & Power Modes', icon: '⚡', desc: 'Manage Low Power, Balanced, and Turbo performance profiles', keywords: 'energy power battery mode turbo balanced low power eco' },
+      { id: 'multitask', title: 'Multitasking & Aero Snap Assist', icon: '🪟', desc: 'Magnetic split-screen windows, spring physics damping, gestures', keywords: 'multitasking snap aero split screen windows arrange layout' },
+      { id: 'storage', title: 'Storage & ZRAM Kernel Compaction', icon: '💾', desc: 'NVMe disk usage, ZRAM mm_stat compression (LZ4/ZSTD), VFS stats', keywords: 'storage disk nvme zram memory compaction lz4 zstd ram vfs' },
+      { id: 'about', title: 'About Poly OS', icon: 'ℹ️', desc: 'System version, Linux zen kernel, Smithay compositor, musl libc', keywords: 'about system version specs hardware kernel linux smithay' }
+    ];
+
+    settingsPanels.forEach(panel => {
+      const score = this.fuzzyScore(query, panel.title, `${panel.desc} ${panel.keywords}`);
+      if (!query ? (panel.id === 'appearance' || panel.id === 'storage') : score > 0) {
+        candidates.push({
+          type: 'setting',
+          category: 'Settings & System',
+          icon: panel.icon,
+          title: panel.title,
+          subtitle: panel.desc,
+          badge: 'Settings',
+          score: query ? score + 20 : 50,
+          action: () => {
+            this.launchApp('settings', panel.id);
+            polyAudio.playClick();
+          }
+        });
+      }
+    });
+
+    // 5. System Commands & Quick Actions
     const actions = [
+      {
+        title: 'Toggle Appearance: Dark ↔ Light',
+        icon: '🌓',
+        desc: 'Switch system-wide appearance theme with 350ms spring crossfade',
+        keywords: 'toggle theme appearance dark light mode switch',
+        action: () => {
+          this.setAppearance(this.appearanceMode === 'dark' ? 'light' : 'dark');
+        }
+      },
       {
         title: 'Toggle Taskbar Mode (Windows ↔ iOS)',
         icon: '↔️',
-        desc: 'Switch between floating pill and full-width taskbar',
+        desc: 'Switch between floating pill dock and full-width taskbar',
+        keywords: 'dock taskbar toggle floating mode layout bottom',
         action: () => {
           this.setDockMode(this.dockMode === 'floating' ? 'taskbar' : 'floating');
           polyAudio.playSnap();
@@ -1803,7 +3068,8 @@ class PolyOS {
       {
         title: 'App Exposé View (Win + Tab)',
         icon: '🪟',
-        desc: 'Overview grid of all running windows',
+        desc: 'Overview grid showing all running windows',
+        keywords: 'expose windows overview mission control win tab switch',
         action: () => {
           this.toggleExpose();
         }
@@ -1811,7 +3077,8 @@ class PolyOS {
       {
         title: 'Free Inactive Apps Memory (polyd purge)',
         icon: '⚡',
-        desc: 'Force cgroups v2 freezing on background tasks',
+        desc: 'Force cgroups v2 freezing on background tasks & compact ZRAM',
+        keywords: 'ram memory purge free clean compact cache zram polyd',
         action: () => {
           this.windows.forEach(w => {
             if (w.id !== this.activeWindowId && !w.title.includes('Music')) {
@@ -1827,164 +3094,213 @@ class PolyOS {
         title: 'Switch Wallpaper: Cupertino Glass',
         icon: '🌌',
         desc: 'Deep indigo & violet Apple-style glass gradient',
+        keywords: 'wallpaper cupertino apple violet glass dark',
         action: () => this.setWallpaper('cupertino')
       },
       {
         title: 'Switch Wallpaper: Redmond Horizon',
         icon: '🌊',
         desc: 'Windows 11 cobalt blue flowing silk wallpaper',
+        keywords: 'wallpaper redmond windows blue horizon silk',
         action: () => this.setWallpaper('redmond')
       },
       {
         title: 'Switch Wallpaper: Nordic Aurora',
         icon: '🌲',
         desc: 'Teal & emerald ambient glow theme',
+        keywords: 'wallpaper aurora nordic teal green glow',
         action: () => this.setWallpaper('aurora')
       },
       {
         title: 'Switch Wallpaper: Cyber Dusk',
         icon: '🌆',
         desc: 'Neon magenta and obsidian twilight theme',
+        keywords: 'wallpaper cyber dusk neon magenta twilight',
         action: () => this.setWallpaper('cyber')
       },
       {
-        title: 'Toggle System Acoustic Sounds',
-        icon: '🔊',
-        desc: 'Enable or disable haptic clicks and window snap chimes',
+        title: 'Send Test Toast Notification',
+        icon: '🔔',
+        desc: 'Dispatch macOS-style toast alert and history record',
+        keywords: 'toast notification notify test bell alert',
         action: () => {
-          polyAudio.enabled = !polyAudio.enabled;
-          this.notifyIsland(`🔊 System Sounds: ${polyAudio.enabled ? 'Enabled' : 'Muted'}`);
-          if (polyAudio.enabled) polyAudio.playSuccess();
+          this.notify('System Verification', 'Spotlight universal search verified & operational.', '⚡');
+        }
+      },
+      {
+        title: 'Toggle Desktop Widgets',
+        icon: '🧩',
+        desc: 'Show or hide desktop performance, clock, weather, and sticky widgets',
+        keywords: 'widgets desktop toggle hide show clock weather performance sticky',
+        action: () => {
+          if (typeof this.toggleWidgets === 'function') this.toggleWidgets();
+        }
+      },
+      {
+        title: 'Reset IndexedDB VFS to Defaults',
+        icon: '🔄',
+        desc: 'Re-seed virtual files and directories to factory defaults',
+        keywords: 'reset vfs factory defaults files reseed clean',
+        action: async () => {
+          if (window.polyVFS) {
+            await window.polyVFS.resetDefaults();
+            this.notify('VFS Restored', 'IndexedDB virtual file system re-seeded to factory defaults.', '🔄');
+            polyAudio.playSuccess();
+          }
         }
       }
     ];
 
     actions.forEach(act => {
-      if (!query || act.title.toLowerCase().includes(qLower) || act.desc.toLowerCase().includes(qLower)) {
-        results.push({
+      const score = this.fuzzyScore(query, act.title, `${act.desc} ${act.keywords}`);
+      if (!query ? (act.title.includes('Dark') || act.title.includes('polyd')) : score > 0) {
+        candidates.push({
           type: 'action',
+          category: 'Quick Commands',
           icon: act.icon,
           title: act.title,
           subtitle: act.desc,
           badge: 'Command',
+          score: query ? score + 10 : 40,
           action: act.action
         });
       }
     });
 
-    // 4. Virtual Files
-    const files = [
-      { name: 'poly-compositor', icon: '📁', meta: 'Rust Smithay Wayland Server' },
-      { name: 'SPECIFICATION.md', icon: '📄', meta: 'Poly OS Architecture Math & Spec' },
-      { name: 'physics.rs', icon: '🦀', meta: 'Rust Spring Mass-Damper Equations' },
-      { name: 'polyd.py', icon: '🐍', meta: 'cgroups v2 Process Freezer Daemon' },
-      { name: 'build-iso.sh', icon: '⚙️', meta: 'Alpine Linux Rootfs ISO Builder' },
-      { name: 'wallpaper-glass.heic', icon: '🖼️', meta: '5K Glassmorphic Wallpaper' }
-    ];
+    // Sort by relevance score descending
+    candidates.sort((a, b) => b.score - a.score);
 
-    files.forEach(f => {
-      if (query && (f.name.toLowerCase().includes(qLower) || f.meta.toLowerCase().includes(qLower))) {
-        results.push({
-          type: 'file',
-          icon: f.icon,
-          title: f.name,
-          subtitle: f.meta,
-          badge: 'File',
-          action: () => {
-            this.launchApp('files');
-            this.notifyIsland(`📁 Opening file: ${f.name}`);
-            polyAudio.playClick();
-          }
-        });
-      }
+    // Limit to top 10 results and order by category display hierarchy
+    const topCandidates = candidates.slice(0, 10);
+    const categoryOrder = [
+      'Calculator & Conversions',
+      'Applications',
+      'Files (IndexedDB VFS)',
+      'Settings & System',
+      'Quick Commands'
+    ];
+    topCandidates.sort((a, b) => {
+      const idxA = categoryOrder.indexOf(a.category);
+      const idxB = categoryOrder.indexOf(b.category);
+      const orderA = idxA === -1 ? 99 : idxA;
+      const orderB = idxB === -1 ? 99 : idxB;
+      if (orderA !== orderB) return orderA - orderB;
+      return b.score - a.score;
     });
 
-    this.spotlightCurrentResults = results;
+    this.spotlightCurrentResults = topCandidates;
     this.renderSpotlightResults();
-  }
-
-  tryEvaluateMath(str) {
-    try {
-      let cleaned = str.trim().toLowerCase();
-      // Percent of: e.g. 20% of 500
-      cleaned = cleaned.replace(/(\d+(?:\.\d+)?)\s*%\s*(?:of)?\s*(\d+(?:\.\d+)?)/g, '($1 / 100 * $2)');
-      // Power: 2^8 -> 2**8
-      cleaned = cleaned.replace(/\^/g, '**');
-      // Functions
-      cleaned = cleaned.replace(/sqrt\(([^)]+)\)/g, 'Math.sqrt($1)');
-      cleaned = cleaned.replace(/sin\(([^)]+)\)/g, 'Math.sin($1)');
-      cleaned = cleaned.replace(/cos\(([^)]+)\)/g, 'Math.cos($1)');
-      cleaned = cleaned.replace(/abs\(([^)]+)\)/g, 'Math.abs($1)');
-      cleaned = cleaned.replace(/\bpi\b/g, 'Math.PI');
-      cleaned = cleaned.replace(/\be\b/g, 'Math.E');
-
-      // Only allow safe math tokens
-      if (!/^[\d\s\+\-\*\/\.\(\)\%\,Math\.\w]+$/.test(cleaned)) {
-        return null;
-      }
-      // Must contain at least one math operator or number
-      if (!/\d/.test(cleaned)) return null;
-
-      const fn = new Function(`return (${cleaned});`);
-      const val = fn();
-      if (typeof val === 'number' && !isNaN(val) && isFinite(val)) {
-        // Format nicely
-        return Math.round(val * 100000) / 100000;
-      }
-      return null;
-    } catch(e) {
-      return null;
-    }
   }
 
   renderSpotlightResults() {
     const container = document.getElementById('spotlight-results');
+    const hintEl = document.getElementById('spotlight-action-hint');
     if (!container) return;
 
     if (this.spotlightCurrentResults.length === 0) {
       container.innerHTML = `
-        <div style="padding: 30px; text-align: center; color: var(--text-muted); font-size: 13px;">
-          No matching apps, files, math, or commands found.
+        <div style="padding: 34px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">
+          <div style="font-size: 26px; margin-bottom: 8px;">🔍</div>
+          <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">No Results Found</div>
+          <div style="font-size: 11px;">Try searching for app names ("Code", "Files"), files ("physics.rs"), settings ("zram", "theme"), or math ("128 * 8").</div>
         </div>
       `;
+      if (hintEl) hintEl.innerHTML = 'Open / Run <b>↵ Enter</b>';
       return;
     }
 
-    container.innerHTML = '';
-    this.spotlightCurrentResults.slice(0, 8).forEach((item, idx) => {
-      if (item.type === 'calc') {
-        const card = document.createElement('div');
-        card.className = `spotlight-calc-card ${idx === this.spotlightSelectedIndex ? 'active' : ''}`;
-        card.innerHTML = `
-          <div>
-            <div class="spotlight-calc-expr">🧮 Calculator Answer</div>
-            <div class="spotlight-calc-ans">${item.title}</div>
-          </div>
-          <span class="spotlight-item-badge">↵ Copy</span>
-        `;
-        card.addEventListener('click', () => {
-          item.action();
-          this.closeSpotlight();
-        });
-        container.appendChild(card);
-      } else {
-        const row = document.createElement('div');
-        row.className = `spotlight-item ${idx === this.spotlightSelectedIndex ? 'active' : ''}`;
-        row.innerHTML = `
-          <div class="spotlight-item-icon">${item.icon}</div>
-          <div class="spotlight-item-info">
-            <div class="spotlight-item-title">${item.title}</div>
-            <div class="spotlight-item-sub">${item.subtitle}</div>
-          </div>
-          <span class="spotlight-item-badge">${item.badge}</span>
-        `;
-        row.addEventListener('click', () => {
-          item.action();
-          this.closeSpotlight();
-        });
-        container.appendChild(row);
-      }
+    // Group items by category while preserving global item indices for keyboard navigation
+    const categoryOrder = [
+      'Calculator & Conversions',
+      'Applications',
+      'Files (IndexedDB VFS)',
+      'Settings & System',
+      'Quick Commands'
+    ];
+
+    const groups = new Map();
+    this.spotlightCurrentResults.forEach((item, globalIdx) => {
+      const cat = item.category || 'Other';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push({ item, globalIdx });
     });
+
+    container.innerHTML = '';
+
+    categoryOrder.forEach(catName => {
+      if (!groups.has(catName)) return;
+      const entries = groups.get(catName);
+
+      // Render category header
+      const header = document.createElement('div');
+      header.className = 'spotlight-category-header';
+      header.innerHTML = `
+        <span>${catName}</span>
+        <span class="spotlight-category-badge">${entries.length}</span>
+      `;
+      container.appendChild(header);
+
+      // Render items within category
+      entries.forEach(({ item, globalIdx }) => {
+        const isSelected = globalIdx === this.spotlightSelectedIndex;
+
+        if (item.type === 'calc') {
+          const card = document.createElement('div');
+          card.className = `spotlight-calc-card ${isSelected ? 'active' : ''}`;
+          card.dataset.index = globalIdx;
+          card.innerHTML = `
+            <div>
+              <div class="spotlight-calc-expr">🧮 Result & Conversion</div>
+              <div class="spotlight-calc-ans">${item.title}</div>
+            </div>
+            <span class="spotlight-item-badge">↵ Copy</span>
+          `;
+          card.addEventListener('click', () => {
+            item.action();
+            this.closeSpotlight();
+          });
+          container.appendChild(card);
+        } else {
+          const row = document.createElement('div');
+          row.className = `spotlight-item ${isSelected ? 'active' : ''}`;
+          row.dataset.index = globalIdx;
+
+          const highlightedTitle = this.highlightMatch(item.title, this.activeSpotlightQuery);
+
+          row.innerHTML = `
+            <div class="spotlight-item-icon">${item.icon}</div>
+            <div class="spotlight-item-info">
+              <div class="spotlight-item-title">${highlightedTitle}</div>
+              <div class="spotlight-item-sub">${item.subtitle}</div>
+            </div>
+            <span class="spotlight-item-badge">${item.badge}</span>
+          `;
+          row.addEventListener('click', () => {
+            item.action();
+            this.closeSpotlight();
+          });
+          container.appendChild(row);
+        }
+      });
+    });
+
+    // Update bottom footer action hint based on active selection
+    if (hintEl && this.spotlightCurrentResults[this.spotlightSelectedIndex]) {
+      const sel = this.spotlightCurrentResults[this.spotlightSelectedIndex];
+      let actionLabel = 'Open / Run';
+      if (sel.type === 'app') actionLabel = 'Launch App';
+      else if (sel.type === 'file') actionLabel = 'Open File';
+      else if (sel.type === 'setting') actionLabel = 'Jump to Setting';
+      else if (sel.type === 'calc') actionLabel = 'Copy Result';
+      else if (sel.type === 'action') actionLabel = 'Execute Command';
+      hintEl.innerHTML = `${actionLabel} <b>↵ Enter</b>`;
+    }
+
+    // Scroll active item smoothly into view
+    const activeEl = container.querySelector(`[data-index="${this.spotlightSelectedIndex}"]`);
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   executeSpotlightSelected() {
@@ -2012,7 +3328,72 @@ class PolyOS {
       });
     }
 
-    // Notification Center Toggle
+    // Control Center Appearance Theme Quick Switcher (Issue 11)
+    const ccThemeToggle = document.getElementById('toggle-appearance-theme');
+    if (ccThemeToggle) {
+      ccThemeToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const nextMode = this.appearanceMode === 'dark' ? 'light' : (this.appearanceMode === 'light' ? 'auto' : 'dark');
+        this.setAppearance(nextMode);
+      });
+    }
+
+    // Connectivity & Quick Toggles (Wi-Fi, Bluetooth, PolyDrop, Aero Snap)
+    const toggleWifiBtn = document.getElementById('toggle-wifi');
+    if (toggleWifiBtn) {
+      toggleWifiBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleWifi();
+      });
+    }
+
+    const topbarWifiBtn = document.getElementById('topbar-wifi');
+    if (topbarWifiBtn) {
+      topbarWifiBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleWifi();
+      });
+    }
+
+    const toggleBtBtn = document.getElementById('toggle-bluetooth');
+    if (toggleBtBtn) {
+      toggleBtBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleBluetooth();
+      });
+    }
+
+    const topbarBtBtn = document.getElementById('topbar-bluetooth');
+    if (topbarBtBtn) {
+      topbarBtBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleBluetooth();
+      });
+    }
+
+    const toggleAirdropBtn = document.getElementById('toggle-airdrop');
+    if (toggleAirdropBtn) {
+      toggleAirdropBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.togglePolyDrop();
+      });
+    }
+
+    const toggleStageBtn = document.getElementById('toggle-stage');
+    if (toggleStageBtn) {
+      toggleStageBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.setAeroSnap(!this.aeroSnapEnabled);
+      });
+    }
+
+    // Initialize toggle UI states
+    this.updateWifiUI();
+    this.updateBluetoothUI();
+    this.updatePolyDropUI();
+    this.updateSnapUI();
+
+    // Notification Center Toggle (Bell Button)
     const notifBtn = document.getElementById('notif-btn');
     if (notifBtn && notifCenter) {
       notifBtn.addEventListener('click', (e) => {
@@ -2024,6 +3405,19 @@ class PolyOS {
       });
     }
 
+    // System Clock Click (Also opens Notification Center)
+    const sysClock = document.getElementById('system-clock');
+    if (sysClock && notifCenter) {
+      sysClock.addEventListener('click', (e) => {
+        e.stopPropagation();
+        notifCenter.classList.toggle('hidden');
+        if (!notifCenter.classList.contains('hidden') && cc) {
+          cc.classList.add('hidden');
+        }
+        polyAudio.playClick();
+      });
+    }
+
     // Clear all notifications
     const notifClearBtn = document.getElementById('notif-clear-btn');
     if (notifClearBtn) {
@@ -2031,13 +3425,7 @@ class PolyOS {
         e.stopPropagation();
         polyAudio.playClick();
         document.querySelectorAll('.notif-card.unread').forEach(c => c.classList.remove('unread'));
-        const badge = document.getElementById('notif-badge');
-        if (badge) badge.classList.add('hidden');
-        const countBadge = document.getElementById('notif-count-badge');
-        if (countBadge) {
-          countBadge.textContent = '0 New';
-          countBadge.style.opacity = '0.5';
-        }
+        this.updateNotificationBadgeCount();
       });
     }
 
@@ -2057,7 +3445,18 @@ class PolyOS {
     if (startBtn && startMenu) {
       startBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        const willShow = startMenu.classList.contains('hidden');
         startMenu.classList.toggle('hidden');
+        if (willShow) {
+          const input = document.getElementById('start-search-input');
+          if (input) {
+            input.value = '';
+            document.querySelectorAll('#start-menu .pinned-grid .grid-app').forEach(app => {
+              app.style.display = 'flex';
+            });
+            setTimeout(() => input.focus(), 60);
+          }
+        }
       });
     }
 
@@ -2075,7 +3474,7 @@ class PolyOS {
     });
 
     // Exposé Toggle (Win + Tab / button)
-    document.getElementById('expose-btn').addEventListener('click', () => {
+    document.getElementById('expose-btn')?.addEventListener('click', () => {
       this.toggleExpose();
     });
 
@@ -2109,6 +3508,16 @@ class PolyOS {
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
+        // Multi-Monitor Migration Shortcut: Alt + Shift + ArrowLeft OR Win + Shift + ArrowLeft
+        if (e.shiftKey && (e.altKey || e.metaKey)) {
+          if (this.displayManager && this.displayManager.windowsOnDisplay2.size > 0) {
+            const lastId = Array.from(this.displayManager.windowsOnDisplay2.keys()).pop();
+            if (lastId) {
+              this.displayManager.recallWindow(lastId);
+              return;
+            }
+          }
+        }
         if (e.shiftKey) {
           this.applySnap(win.id, 'top-left');
         } else if (isMax) {
@@ -2124,6 +3533,13 @@ class PolyOS {
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
+        // Multi-Monitor Migration Shortcut: Alt + Shift + ArrowRight OR Win + Shift + ArrowRight
+        if (e.shiftKey && (e.altKey || e.metaKey)) {
+          if (this.displayManager) {
+            this.displayManager.transferWindowToDisplay2(win.id);
+            return;
+          }
+        }
         if (e.shiftKey) {
           this.applySnap(win.id, 'top-right');
         } else if (isMax) {
@@ -2197,6 +3613,36 @@ class PolyOS {
       }
     });
 
+    // Window Management Keyboard Shortcuts: Close (Ctrl+W, Cmd+W, Alt+F4) and Minimize (Ctrl+M, Cmd+M)
+    window.addEventListener('keydown', (e) => {
+      // 1. Close Window: Ctrl+W, Cmd+W, or Alt+F4
+      const isCloseKey = (e.altKey && e.key === 'F4') ||
+                         ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W' || e.code === 'KeyW'));
+      if (isCloseKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const targetId = this.immersiveWindowId || this.activeWindowId;
+        if (targetId) {
+          const force = e.shiftKey || (e.altKey && e.key !== 'F4');
+          this.closeWindow(targetId, force);
+        }
+        return;
+      }
+
+      // 2. Minimize Window: Ctrl+M or Cmd+M
+      const isMinKey = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey &&
+                       (e.key === 'm' || e.key === 'M' || e.code === 'KeyM');
+      if (isMinKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const targetId = this.immersiveWindowId || this.activeWindowId;
+        if (targetId) {
+          this.minimizeWindow(targetId);
+        }
+        return;
+      }
+    });
+
     // On browser window resize, re-anchor maximized windows to 100vw x 100vh
     window.addEventListener('resize', () => {
       for (const win of this.windows.values()) {
@@ -2238,20 +3684,47 @@ class PolyOS {
       btn.addEventListener('click', () => {
         const app = btn.dataset.launch;
         this.handleAppIconClick(app);
-        document.getElementById('start-menu').classList.add('hidden');
+        document.getElementById('start-menu')?.classList.add('hidden');
       });
     });
+
+    // Start menu search filtering
+    const startSearch = document.getElementById('start-search-input');
+    if (startSearch) {
+      startSearch.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        document.querySelectorAll('#start-menu .pinned-grid .grid-app').forEach(app => {
+          const label = (app.querySelector('label')?.textContent || app.dataset.launch || '').toLowerCase();
+          app.style.display = (!query || label.includes(query)) ? 'flex' : 'none';
+        });
+      });
+      startSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const visible = Array.from(document.querySelectorAll('#start-menu .pinned-grid .grid-app')).find(a => a.style.display !== 'none');
+          if (visible) {
+            visible.click();
+          }
+        }
+      });
+    }
 
     // Power modes
     document.querySelectorAll('.mode-pill').forEach(pill => {
       pill.addEventListener('click', () => {
-        document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
-        pill.classList.add('active');
-        this.powerMode = pill.dataset.mode;
-        this.syncSystemMetrics();
-        this.notifyIsland(`⚡ Energy Engine: ${pill.textContent}`);
+        this.setPowerMode(pill.dataset.mode);
       });
     });
+  }
+
+  setPowerMode(mode) {
+    if (!['low', 'balanced', 'turbo'].includes(mode)) return;
+    this.powerMode = mode;
+    document.querySelectorAll('.mode-pill').forEach(p => {
+      p.classList.toggle('active', p.dataset.mode === mode);
+    });
+    this.syncSystemMetrics();
+    const modeName = mode === 'low' ? 'Battery Saver (60Hz)' : (mode === 'turbo' ? 'Turbo Pro (120Hz+)' : 'Balanced (120Hz)');
+    this.notifyIsland(`⚡ Energy Engine: ${modeName}`);
   }
 
   initWorkspaces() {
@@ -2284,7 +3757,7 @@ class PolyOS {
     let topWinId = null;
     this.windows.forEach(w => {
       if (w.workspace === targetWs) {
-        if (!w.isMinimized) {
+        if (!w.isMinimized && !w.isBackgroundRunning) {
           w.element.style.display = 'flex';
           topWinId = w.id;
         }
@@ -2304,6 +3777,7 @@ class PolyOS {
     this.renderTaskbarWindowStrip();
     polyAudio.playSnap();
     this.notifyIsland(`🖥️ Workspace: Desktop ${targetWs}`);
+    this.wakeRenderLoop();
   }
 
   handleAppIconClick(app) {
@@ -2322,6 +3796,10 @@ class PolyOS {
 
     if (matchingWins.length === 1) {
       const win = matchingWins[0];
+      if (win.isBackgroundRunning) {
+        this.restoreFromTray(win.id);
+        return;
+      }
       if (win.workspace !== this.currentWorkspace) {
         this.switchWorkspace(win.workspace);
       }
@@ -2340,7 +3818,13 @@ class PolyOS {
       return;
     }
 
-    // Multiple windows open for this app: cycle or bring to focus
+    // Multiple windows open for this app: check if backgrounded first, or cycle
+    const bgWin = matchingWins.find(w => w.isBackgroundRunning);
+    if (bgWin) {
+      this.restoreFromTray(bgWin.id);
+      return;
+    }
+
     const activeIdx = matchingWins.findIndex(w => w.id === this.activeWindowId && !w.isMinimized);
     let nextWin = null;
     if (activeIdx === -1) {
@@ -2362,6 +3846,29 @@ class PolyOS {
   }
 
   initDesktopFiles() {
+    // Restore persistent desktop shortcuts (Issue 16)
+    try {
+      const savedShortcuts = JSON.parse(localStorage.getItem('poly_desktop_shortcuts') || '[]');
+      const container = document.getElementById('desktop-files');
+      if (container && Array.isArray(savedShortcuts)) {
+        savedShortcuts.forEach(item => {
+          if (!container.querySelector(`.desktop-file[data-file="${item.name}"]`)) {
+            const el = document.createElement('div');
+            el.className = 'desktop-file';
+            el.dataset.file = item.name;
+            el.dataset.type = item.type || 'code';
+            el.dataset.size = item.size || 'Shortcut';
+            el.title = `Double click to open or drag to apps`;
+            el.innerHTML = `
+              <div class="desktop-file-icon">${item.icon || '📄'}</div>
+              <span class="desktop-file-name">${item.name}</span>
+            `;
+            container.appendChild(el);
+          }
+        });
+      }
+    } catch(e) {}
+
     const desktopFiles = document.querySelectorAll('.desktop-file');
     const ctxMenu = document.getElementById('desktop-context-menu');
     const ghost = document.getElementById('desktop-grid-ghost');
@@ -2500,6 +4007,7 @@ class PolyOS {
     // Interactive Drag-and-Drop & Snap-to-Grid for Each Icon
     desktopFiles.forEach(fileEl => {
       const fileName = fileEl.dataset.file;
+      this.makeDesktopFileDraggable(fileEl);
 
       fileEl.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return; // Left click only
@@ -2539,13 +4047,21 @@ class PolyOS {
               ghost.style.top = `${snapped.y}px`;
             }
 
-            // Highlight drop target if hovering over Files app
+            // Highlight drop target if hovering over apps
             const underPoint = document.elementFromPoint(ev.clientX, ev.clientY);
             const filesGrid = underPoint?.closest('#files-items-grid');
-            document.querySelectorAll('.file-drop-zone-active').forEach(el => el.classList.remove('file-drop-zone-active'));
-            if (filesGrid) {
-              filesGrid.classList.add('file-drop-zone-active');
-            }
+            const codeStudio = underPoint?.closest('#code-studio-root');
+            const notesApp = underPoint?.closest('#notes-app-root, .notes-app-root');
+            const termApp = underPoint?.closest('#term-app-root, .term-app-root');
+
+            document.querySelectorAll('.file-drop-zone-active, .drop-target-active').forEach(el => {
+              el.classList.remove('file-drop-zone-active', 'drop-target-active');
+            });
+
+            if (filesGrid) filesGrid.classList.add('file-drop-zone-active');
+            if (codeStudio) codeStudio.classList.add('drop-target-active');
+            if (notesApp) notesApp.classList.add('drop-target-active');
+            if (termApp) termApp.classList.add('drop-target-active');
           }
         };
 
@@ -2557,19 +4073,59 @@ class PolyOS {
             fileEl.classList.remove('is-dragging-desktop');
             if (ghost) ghost.classList.add('hidden');
 
-            // Check if dropped onto Files app
-            const dropTarget = document.elementFromPoint(ev.clientX, ev.clientY);
-            const filesGrid = dropTarget?.closest('#files-items-grid');
-            if (filesGrid) {
-              filesGrid.classList.remove('file-drop-zone-active');
-              polyAudio.playSuccess();
-              this.notifyIsland(`📥 Dropped ${fileName} into Files`);
-              // Spring back to its original slot on desktop
+            document.querySelectorAll('.file-drop-zone-active, .drop-target-active').forEach(el => {
+              el.classList.remove('file-drop-zone-active', 'drop-target-active');
+            });
+
+            const returnToDesktopSlot = () => {
               const prev = positionMap.get(fileName);
               if (prev) {
                 fileEl.style.left = `${prev.x}px`;
                 fileEl.style.top = `${prev.y}px`;
               }
+            };
+
+            // Check if dropped onto Files app, Code Studio, Notes, or Terminal
+            const dropTarget = document.elementFromPoint(ev.clientX, ev.clientY);
+            const filesGrid = dropTarget?.closest('#files-items-grid');
+            const codeStudio = dropTarget?.closest('#code-studio-root');
+            const notesApp = dropTarget?.closest('#notes-app-root, .notes-app-root');
+            const termApp = dropTarget?.closest('#term-app-root, .term-app-root');
+
+            if (filesGrid) {
+              polyAudio.playSuccess();
+              this.notifyIsland(`📥 Dropped ${fileName} into Files`);
+              returnToDesktopSlot();
+              return;
+            } else if (codeStudio) {
+              if (typeof window.polyCodeStudioSwitchFile === 'function') {
+                window.polyCodeStudioSwitchFile(fileName);
+              } else {
+                this.launchApp('code', fileName);
+              }
+              polyAudio.playChime();
+              this.notifyIsland(`💻 Opened ${fileName} in Code Studio`);
+              returnToDesktopSlot();
+              return;
+            } else if (notesApp) {
+              const textarea = notesApp.querySelector('#notes-body-text, .notes-textarea') || document.querySelector('.notes-textarea');
+              if (textarea) {
+                textarea.value += `\n\n> 📄 **Attached Document:** [${fileName}](file:///${fileName})\n`;
+                textarea.dispatchEvent(new Event('input'));
+              }
+              polyAudio.playSuccess();
+              this.notifyIsland(`📝 Attached ${fileName} in Notes`);
+              returnToDesktopSlot();
+              return;
+            } else if (termApp) {
+              const input = termApp.querySelector('#term-cli-input');
+              if (input) {
+                input.value += (input.value ? ' ' : '') + fileName;
+                input.focus();
+              }
+              polyAudio.playClick();
+              this.notifyIsland(`⌨️ File path inserted into terminal: ${fileName}`);
+              returnToDesktopSlot();
               return;
             }
 
@@ -2896,7 +4452,7 @@ class PolyOS {
     } catch(e) {}
 
     await this.fetchZramTelemetry();
-    this.notifyIsland(`⚡ ZRAM backend: ${newAlgo.toUpperCase()} (${this.zram.ratioStr} ratio)`);
+    this.notify('ZRAM Algorithm Switched', `Compression backend switched to ${newAlgo.toUpperCase()} (${this.zram.ratioStr} ratio).`, '⚡', 'telemetry');
     polyAudio.playSuccess();
   }
 
@@ -3175,43 +4731,429 @@ class PolyOS {
     modal.classList.remove('hidden');
   }
 
+  // --- Universal Inter-Application Drag & Drop Subsystem (Issue 16) ---
+  initDragDropSystem() {
+    this.dragPayload = null;
+    this.isHtml5Dragging = false;
+    const ghost = document.getElementById('poly-drag-ghost');
+
+    const updateGhostPosition = (clientX, clientY) => {
+      if (ghost && this.dragPayload) {
+        ghost.style.left = `${clientX + 14}px`;
+        ghost.style.top = `${clientY + 14}px`;
+      }
+    };
+
+    window.addEventListener('dragover', (e) => {
+      if (this.dragPayload) {
+        e.preventDefault();
+        updateGhostPosition(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (this.dragPayload) {
+        updateGhostPosition(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('dragend', () => {
+      this.endDrag();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (this.dragPayload && !this.isHtml5Dragging) {
+        this.endDrag();
+      }
+    });
+
+    // Global Desktop / Workspace Drop Zone (Creates Desktop Shortcut or Pins Note)
+    const desktop = document.getElementById('desktop');
+    const workspace = document.getElementById('workspace');
+    [desktop, workspace].forEach(target => {
+      if (!target) return;
+      target.addEventListener('dragover', (e) => {
+        if (this.dragPayload) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      });
+
+      target.addEventListener('drop', (e) => {
+        if (!this.dragPayload) return;
+        if (e.target.closest('.window')) return;
+        e.preventDefault();
+
+        if (this.dragPayload.type === 'file') {
+          if (this.dragPayload.sourceApp !== 'desktop') {
+            this.createDesktopShortcut(this.dragPayload.data, e.clientX, e.clientY);
+          }
+        } else if (this.dragPayload.type === 'text') {
+          const sticky = document.getElementById('desktop-sticky-text');
+          if (sticky) {
+            sticky.value += (sticky.value ? '\n\n' : '') + `• ${this.dragPayload.data.text}`;
+            localStorage.setItem('poly_sticky_note', sticky.value);
+            polyAudio.playSnap();
+            this.notifyIsland('📌 Text pinned to Desktop Sticky Note');
+          }
+        }
+        this.endDrag();
+      });
+    });
+
+    // Desktop Sticky Note Widget drop zone
+    const stickyWidget = document.getElementById('desktop-sticky-widget');
+    const stickyText = document.getElementById('desktop-sticky-text');
+    if (stickyWidget && stickyText) {
+      stickyWidget.addEventListener('dragover', (e) => {
+        if (this.dragPayload) {
+          e.preventDefault();
+          stickyWidget.classList.add('drop-target-active');
+        }
+      });
+      stickyWidget.addEventListener('dragleave', () => {
+        stickyWidget.classList.remove('drop-target-active');
+      });
+      stickyWidget.addEventListener('drop', (e) => {
+        stickyWidget.classList.remove('drop-target-active');
+        if (!this.dragPayload) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (this.dragPayload.type === 'text') {
+          stickyText.value += (stickyText.value ? '\n' : '') + this.dragPayload.data.text;
+          localStorage.setItem('poly_sticky_note', stickyText.value);
+          polyAudio.playSnap();
+          this.notifyIsland('📌 Snippet pinned to Sticky Note');
+        } else if (this.dragPayload.type === 'file') {
+          stickyText.value += (stickyText.value ? '\n' : '') + `• ${this.dragPayload.data.name}`;
+          localStorage.setItem('poly_sticky_note', stickyText.value);
+          polyAudio.playSuccess();
+          this.notifyIsland(`📌 Added ${this.dragPayload.data.name} to Sticky Note`);
+        }
+        this.endDrag();
+      });
+    }
+
+    this.attachDropZones();
+  }
+
+  startDrag(payload, e) {
+    this.dragPayload = payload;
+    this.isHtml5Dragging = true;
+    const ghost = document.getElementById('poly-drag-ghost');
+    const ghostIcon = document.getElementById('ghost-icon');
+    const ghostTitle = document.getElementById('ghost-title');
+    const ghostBadge = document.getElementById('ghost-badge');
+
+    if (ghost && ghostIcon && ghostTitle) {
+      if (payload.type === 'file') {
+        ghostIcon.textContent = payload.data.icon || '📄';
+        ghostTitle.textContent = payload.data.name || 'File';
+        if (ghostBadge) ghostBadge.textContent = payload.sourceApp === 'files' ? 'From Files' : 'From Desktop';
+      } else if (payload.type === 'text') {
+        ghostIcon.textContent = '📋';
+        const snippet = (payload.data.text || '').replace(/\s+/g, ' ').substring(0, 24);
+        ghostTitle.textContent = snippet || 'Text Snippet';
+        if (ghostBadge) ghostBadge.textContent = 'Text Clip';
+      }
+      ghost.classList.remove('hidden');
+      if (e) {
+        ghost.style.left = `${e.clientX + 14}px`;
+        ghost.style.top = `${e.clientY + 14}px`;
+      }
+    }
+  }
+
+  endDrag() {
+    this.dragPayload = null;
+    this.isHtml5Dragging = false;
+    const ghost = document.getElementById('poly-drag-ghost');
+    if (ghost) ghost.classList.add('hidden');
+    document.querySelectorAll('.drop-target-active, .file-drop-zone-active').forEach(el => {
+      el.classList.remove('drop-target-active', 'file-drop-zone-active');
+    });
+  }
+
+  createDesktopShortcut(fileData, clientX = 100, clientY = 100) {
+    const desktopFilesContainer = document.getElementById('desktop-files');
+    if (!desktopFilesContainer) return;
+
+    const fileName = fileData.name || 'file.txt';
+    let existing = document.querySelector(`.desktop-file[data-file="${fileName}"]`);
+    if (existing) {
+      existing.classList.add('selected');
+      polyAudio.playSnap();
+      this.notifyIsland(`📍 Shortcut already exists for ${fileName}`);
+      return;
+    }
+
+    const icon = fileData.icon || '📄';
+    const type = fileData.type || 'code';
+    const size = fileData.size || 'VFS';
+
+    const fileEl = document.createElement('div');
+    fileEl.className = 'desktop-file';
+    fileEl.dataset.file = fileName;
+    fileEl.dataset.type = type;
+    fileEl.dataset.size = size;
+    fileEl.title = `Double click to open or drag to apps`;
+    fileEl.innerHTML = `
+      <div class="desktop-file-icon">${icon}</div>
+      <span class="desktop-file-name">${fileName}</span>
+    `;
+
+    const posX = Math.max(24, Math.min(clientX - 44, window.innerWidth - 120));
+    const posY = Math.max(56, Math.min(clientY - 47, window.innerHeight - 140));
+    fileEl.style.left = `${posX}px`;
+    fileEl.style.top = `${posY}px`;
+
+    desktopFilesContainer.appendChild(fileEl);
+
+    // Save to persistent desktop shortcuts in localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('poly_desktop_shortcuts') || '[]');
+      if (!saved.some(s => s.name === fileName)) {
+        saved.push({ name: fileName, icon, type, size, x: posX, y: posY });
+        localStorage.setItem('poly_desktop_shortcuts', JSON.stringify(saved));
+      }
+    } catch(e) {}
+
+    fileEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.desktop-file').forEach(f => f.classList.remove('selected'));
+      fileEl.classList.add('selected');
+    });
+
+    fileEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      if (type === 'code' || /\.(rs|py|js|ts|html|md|txt)$/i.test(fileName)) {
+        this.launchApp('code', fileName);
+      } else {
+        this.openQuickLook(fileName);
+      }
+    });
+
+    this.makeDesktopFileDraggable(fileEl);
+    polyAudio.playSuccess();
+    this.notifyIsland(`🖥️ Created desktop shortcut for ${fileName}`);
+  }
+
+  makeDesktopFileDraggable(fileEl) {
+    if (!fileEl) return;
+    fileEl.setAttribute('draggable', 'true');
+    fileEl.addEventListener('dragstart', (e) => {
+      const fileName = fileEl.dataset.file;
+      const type = fileEl.dataset.type || 'file';
+      const icon = fileEl.querySelector('.desktop-file-icon')?.textContent || '📄';
+      this.startDrag({
+        type: 'file',
+        data: { name: fileName, type, icon, size: fileEl.dataset.size || 'Desktop' },
+        sourceApp: 'desktop'
+      }, e);
+      e.dataTransfer.setData('text/plain', fileName);
+      e.dataTransfer.setData('application/json', JSON.stringify({ name: fileName, type, icon }));
+      fileEl.classList.add('is-dragging-desktop');
+    });
+
+    fileEl.addEventListener('dragend', () => {
+      fileEl.classList.remove('is-dragging-desktop');
+      this.endDrag();
+    });
+  }
+
   attachDropZones() {
-    const attachToFilesApp = () => {
+    const attachAppZones = () => {
+      // 1. Files Explorer Drop Zone
       const filesGrid = document.getElementById('files-items-grid');
       if (filesGrid && !filesGrid.dataset.dropReady) {
         filesGrid.dataset.dropReady = 'true';
         filesGrid.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          filesGrid.classList.add('file-drop-zone-active');
+          if (this.dragPayload) {
+            e.preventDefault();
+            filesGrid.classList.add('file-drop-zone-active');
+          }
         });
         filesGrid.addEventListener('dragleave', () => {
           filesGrid.classList.remove('file-drop-zone-active');
         });
-        filesGrid.addEventListener('drop', (e) => {
+        filesGrid.addEventListener('drop', async (e) => {
           e.preventDefault();
           filesGrid.classList.remove('file-drop-zone-active');
-          const fileName = e.dataTransfer.getData('text/plain');
-          if (!fileName) return;
+          if (!this.dragPayload) {
+            const fileName = e.dataTransfer.getData('text/plain');
+            if (fileName) {
+              this.notifyIsland(`📥 Dropped ${fileName} into Files`);
+            }
+            return;
+          }
 
-          const card = document.createElement('div');
-          card.className = 'file-card';
-          card.dataset.name = fileName;
-          card.dataset.type = 'imported';
-          card.dataset.tag = 'personal';
-          card.innerHTML = `
-            <div class="file-tag-dot tag-personal"></div>
-            <div class="file-icon">📄</div>
-            <div class="file-name">${fileName}</div>
-            <div class="file-meta">Imported • Just now</div>
-          `;
-          filesGrid.prepend(card);
-          polyAudio.playSuccess();
-          this.notifyIsland(`📥 Dropped ${fileName} into Projects!`);
+          if (this.dragPayload.type === 'file') {
+            const fileName = this.dragPayload.data.name;
+            if (window.polyVFS) {
+              const content = this.dragPayload.data.content || `// ${fileName} copied into Projects\n`;
+              await window.polyVFS.writeFile(fileName, content, 'Projects', 'code');
+            }
+            polyAudio.playSuccess();
+            this.notifyIsland(`📥 Imported ${fileName} into Projects!`);
+
+            const filesApp = document.getElementById('files-app-root');
+            if (filesApp && typeof filesApp._renderGrid === 'function') {
+              filesApp._renderGrid();
+            }
+          }
+          this.endDrag();
         });
       }
+
+      // 2. Code Studio Drop Zone
+      const codeRoot = document.getElementById('code-studio-root');
+      if (codeRoot && !codeRoot.dataset.dropReady) {
+        codeRoot.dataset.dropReady = 'true';
+        codeRoot.addEventListener('dragover', (e) => {
+          if (this.dragPayload) {
+            e.preventDefault();
+            codeRoot.classList.add('drop-target-active');
+          }
+        });
+        codeRoot.addEventListener('dragleave', () => {
+          codeRoot.classList.remove('drop-target-active');
+        });
+        codeRoot.addEventListener('drop', async (e) => {
+          codeRoot.classList.remove('drop-target-active');
+          if (!this.dragPayload) return;
+          e.preventDefault();
+          e.stopPropagation();
+
+          if (this.dragPayload.type === 'file') {
+            const fn = this.dragPayload.data.name;
+            if (typeof window.polyCodeStudioSwitchFile === 'function') {
+              await window.polyCodeStudioSwitchFile(fn);
+            } else {
+              this.launchApp('code', fn);
+            }
+            polyAudio.playChime();
+            this.notifyIsland(`💻 Opened ${fn} in Code Studio`);
+          } else if (this.dragPayload.type === 'text') {
+            const textarea = document.getElementById('code-editor-text');
+            if (textarea) {
+              const textToInsert = this.dragPayload.data.text || '';
+              const start = textarea.selectionStart;
+              const end = textarea.selectionEnd;
+              textarea.value = textarea.value.substring(0, start) + textToInsert + textarea.value.substring(end);
+              textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+              textarea.dispatchEvent(new Event('input'));
+              polyAudio.playSnap();
+              this.notifyIsland('📋 Snippet inserted into Code Studio');
+            }
+          }
+          this.endDrag();
+        });
+      }
+
+      // 3. Notes App Drop Zone
+      const notesRoot = document.querySelector('#notes-app-root, .notes-app-root');
+      if (notesRoot && !notesRoot.dataset.dropReady) {
+        notesRoot.dataset.dropReady = 'true';
+        notesRoot.addEventListener('dragover', (e) => {
+          if (this.dragPayload) {
+            e.preventDefault();
+            notesRoot.classList.add('drop-target-active');
+          }
+        });
+        notesRoot.addEventListener('dragleave', () => {
+          notesRoot.classList.remove('drop-target-active');
+        });
+        notesRoot.addEventListener('drop', (e) => {
+          notesRoot.classList.remove('drop-target-active');
+          if (!this.dragPayload) return;
+          e.preventDefault();
+          e.stopPropagation();
+
+          const textarea = notesRoot.querySelector('#notes-body-text, .notes-textarea') || document.querySelector('.notes-textarea');
+          if (textarea) {
+            if (this.dragPayload.type === 'text') {
+              const textToInsert = this.dragPayload.data.text || '';
+              const start = textarea.selectionStart || 0;
+              const end = textarea.selectionEnd || 0;
+              textarea.value = textarea.value.substring(0, start) + textToInsert + textarea.value.substring(end);
+              textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+              textarea.dispatchEvent(new Event('input'));
+              polyAudio.playSnap();
+              this.notifyIsland('📝 Snippet pasted into Notes');
+            } else if (this.dragPayload.type === 'file') {
+              const fn = this.dragPayload.data.name;
+              textarea.value += `\n\n> 📄 **Attached Document:** [${fn}](file:///${fn})\n`;
+              textarea.dispatchEvent(new Event('input'));
+              polyAudio.playSuccess();
+              this.notifyIsland(`📝 Attached ${fn} in Notes`);
+            }
+          }
+          this.endDrag();
+        });
+      }
+
+      // 4. Terminal Drop Zone & Text Dragging
+      const termRoot = document.getElementById('term-app-root');
+      if (termRoot && !termRoot.dataset.dropReady) {
+        termRoot.dataset.dropReady = 'true';
+        termRoot.addEventListener('dragover', (e) => {
+          if (this.dragPayload) {
+            e.preventDefault();
+            termRoot.classList.add('drop-target-active');
+          }
+        });
+        termRoot.addEventListener('dragleave', () => {
+          termRoot.classList.remove('drop-target-active');
+        });
+        termRoot.addEventListener('drop', (e) => {
+          termRoot.classList.remove('drop-target-active');
+          if (!this.dragPayload) return;
+          e.preventDefault();
+          e.stopPropagation();
+
+          const input = termRoot.querySelector('#term-cli-input');
+          if (input) {
+            if (this.dragPayload.type === 'file') {
+              const fn = this.dragPayload.data.name;
+              input.value += (input.value ? ' ' : '') + fn;
+              input.focus();
+              polyAudio.playClick();
+              this.notifyIsland(`⌨️ File path inserted into terminal: ${fn}`);
+            } else if (this.dragPayload.type === 'text') {
+              const txt = this.dragPayload.data.text || '';
+              input.value += (input.value ? ' ' : '') + txt;
+              input.focus();
+              polyAudio.playSnap();
+              this.notifyIsland('⌨️ Snippet pasted into terminal');
+            }
+          }
+          this.endDrag();
+        });
+
+        // Text selection drag support from Terminal output
+        const termStream = termRoot.querySelector('#term-output-stream');
+        if (termStream) {
+          termStream.addEventListener('dragstart', (e) => {
+            const sel = window.getSelection().toString().trim();
+            if (sel) {
+              this.startDrag({
+                type: 'text',
+                data: { text: sel },
+                sourceApp: 'terminal'
+              }, e);
+              e.dataTransfer.setData('text/plain', sel);
+            }
+          });
+          termStream.addEventListener('dragend', () => {
+            this.endDrag();
+          });
+        }
+      }
     };
-    attachToFilesApp();
-    setInterval(attachToFilesApp, 1000);
+
+    attachAppZones();
+    setInterval(attachAppZones, 1000);
   }
 
   initDynamicIslandExpansion() {
@@ -3376,6 +5318,10 @@ class PolyOS {
 
     // 6. Initialize mouse wheel and overflow arrow scrolling
     this.initDockScrolling();
+
+    // 7. Apply initial dock mode and alignment from localStorage
+    this.setDockMode(this.dockMode, true);
+    this.setDockAlignment(this.dockAlign, true);
   }
 
   initDockScrolling() {
@@ -3400,10 +5346,12 @@ class PolyOS {
     this.updateDockAutoScaling();
   }
 
-  setDockMode(mode) {
+  setDockMode(mode, silent = false) {
     this.dockMode = mode;
+    localStorage.setItem('poly_dock_mode', mode);
     const dock = document.getElementById('dock');
     const container = document.getElementById('dock-container');
+    document.body.classList.toggle('has-taskbar', mode === 'taskbar');
     if (dock) {
       if (mode === 'taskbar') {
         dock.classList.remove('mode-floating');
@@ -3430,15 +5378,21 @@ class PolyOS {
 
     this.renderTaskbarWindowStrip();
     this.updateDockAutoScaling();
+    if (!silent) {
+      polyAudio.playSnap();
+      this.notifyIsland(mode === 'taskbar' ? '📐 Taskbar Mode: Full Width' : '📐 Dock Mode: Floating Island');
+    }
   }
 
   toggleDockMode() {
     this.setDockMode(this.dockMode === 'floating' ? 'taskbar' : 'floating');
   }
 
-  setDockAlignment(align) {
+  setDockAlignment(align, silent = false) {
     this.dockAlign = align;
+    localStorage.setItem('poly_dock_align', align);
     const container = document.getElementById('dock-container');
+    document.body.classList.toggle('dock-align-start', align === 'start');
     if (container) {
       container.classList.remove('align-center', 'align-start');
       container.classList.add(`align-${align}`);
@@ -3448,15 +5402,171 @@ class PolyOS {
       b.classList.toggle('active', b.dataset.align === align);
     });
 
-    this.notifyIsland(`📐 Dock Alignment: ${align === 'center' ? 'Centered' : 'Left / Top'}`);
+    if (!silent) {
+      this.notifyIsland(`📐 Dock Alignment: ${align === 'center' ? 'Centered' : 'Left / Top'}`);
+    }
     this.updateDockAutoScaling();
+  }
+
+  toggleWifi(forceState) {
+    if (typeof forceState === 'boolean') {
+      this.wifiEnabled = forceState;
+    } else {
+      this.wifiEnabled = !this.wifiEnabled;
+    }
+    localStorage.setItem('poly_wifi_enabled', this.wifiEnabled ? 'true' : 'false');
+    this.updateWifiUI();
+    polyAudio.playClick();
+    this.notifyIsland(this.wifiEnabled ? '📶 Wi-Fi: Connected (Poly-Mesh 6E)' : '📶 Wi-Fi: Disconnected');
+  }
+
+  updateWifiUI() {
+    const ccBtn = document.getElementById('toggle-wifi');
+    if (ccBtn) {
+      ccBtn.classList.toggle('active', !!this.wifiEnabled);
+      const sub = ccBtn.querySelector('.subtitle');
+      if (sub) sub.textContent = this.wifiEnabled ? 'Poly-Mesh 6E' : 'Off';
+    }
+    const topbarBtn = document.getElementById('topbar-wifi');
+    if (topbarBtn) {
+      topbarBtn.classList.toggle('is-disabled', !this.wifiEnabled);
+      topbarBtn.title = this.wifiEnabled ? 'Wi-Fi: Connected (Poly-Mesh 6E)' : 'Wi-Fi: Disconnected';
+    }
+  }
+
+  toggleBluetooth(forceState) {
+    if (typeof forceState === 'boolean') {
+      this.bluetoothEnabled = forceState;
+    } else {
+      this.bluetoothEnabled = !this.bluetoothEnabled;
+    }
+    localStorage.setItem('poly_bluetooth_enabled', this.bluetoothEnabled ? 'true' : 'false');
+    this.updateBluetoothUI();
+    polyAudio.playClick();
+    this.notifyIsland(this.bluetoothEnabled ? 'ᛒ Bluetooth: Connected (AirPods Pro)' : 'ᛒ Bluetooth: Disabled');
+  }
+
+  updateBluetoothUI() {
+    const ccBtn = document.getElementById('toggle-bluetooth');
+    if (ccBtn) {
+      ccBtn.classList.toggle('active', !!this.bluetoothEnabled);
+      const sub = ccBtn.querySelector('.subtitle');
+      if (sub) sub.textContent = this.bluetoothEnabled ? 'AirPods Pro' : 'Off';
+    }
+    const topbarBtn = document.getElementById('topbar-bluetooth');
+    if (topbarBtn) {
+      topbarBtn.classList.toggle('is-disabled', !this.bluetoothEnabled);
+      topbarBtn.title = this.bluetoothEnabled ? 'Bluetooth: Connected (AirPods Pro)' : 'Bluetooth: Off';
+    }
+  }
+
+  togglePolyDrop(forceState) {
+    if (typeof forceState === 'string') {
+      this.polyDropMode = forceState;
+    } else if (this.polyDropMode === 'Off') {
+      this.polyDropMode = 'Contacts Only';
+    } else if (this.polyDropMode === 'Contacts Only') {
+      this.polyDropMode = 'Everyone';
+    } else {
+      this.polyDropMode = 'Off';
+    }
+    localStorage.setItem('poly_drop_mode', this.polyDropMode);
+    this.updatePolyDropUI();
+    polyAudio.playClick();
+    this.notifyIsland(`📡 PolyDrop: ${this.polyDropMode}`);
+  }
+
+  updatePolyDropUI() {
+    const ccBtn = document.getElementById('toggle-airdrop');
+    if (ccBtn) {
+      ccBtn.classList.toggle('active', this.polyDropMode !== 'Off');
+      const sub = ccBtn.querySelector('.subtitle');
+      if (sub) sub.textContent = this.polyDropMode;
+    }
+  }
+
+  setAeroSnap(enabled) {
+    this.aeroSnapEnabled = !!enabled;
+    localStorage.setItem('poly_aero_snap', this.aeroSnapEnabled ? 'true' : 'false');
+    this.updateSnapUI();
+    polyAudio.playClick();
+    this.notifyIsland(this.aeroSnapEnabled ? '🪟 Aero Snap: Enabled' : '🪟 Aero Snap: Disabled');
+  }
+
+  updateSnapUI() {
+    const ccBtn = document.getElementById('toggle-stage');
+    if (ccBtn) {
+      ccBtn.classList.toggle('active', !!this.aeroSnapEnabled);
+      const sub = ccBtn.querySelector('.subtitle');
+      if (sub) sub.textContent = this.aeroSnapEnabled ? 'Active' : 'Disabled';
+    }
+    const snapToggle = document.getElementById('snap-toggle');
+    if (snapToggle) {
+      snapToggle.checked = !!this.aeroSnapEnabled;
+    }
+  }
+
+  setFreezer(enabled) {
+    this.freezerEnabled = !!enabled;
+    localStorage.setItem('poly_freezer_enabled', this.freezerEnabled ? 'true' : 'false');
+    if (!this.freezerEnabled) {
+      this.windows.forEach(w => {
+        w.isFrozen = false;
+        if (w.element) w.element.classList.remove('frozen');
+      });
+    }
+    this.updateFreezerUI();
+    polyAudio.playClick();
+    this.notifyIsland(this.freezerEnabled ? '❄️ Process Freezer: Active' : '❄️ Process Freezer: Disabled');
+  }
+
+  updateFreezerUI() {
+    const freezerToggle = document.getElementById('freezer-toggle');
+    if (freezerToggle) {
+      freezerToggle.checked = !!this.freezerEnabled;
+    }
+  }
+
+  setHwAcceleration(enabled) {
+    this.hwAccelEnabled = !!enabled;
+    localStorage.setItem('poly_hw_accel', this.hwAccelEnabled ? 'true' : 'false');
+    document.body.classList.toggle('no-hw-accel', !this.hwAccelEnabled);
+    this.updateHwAccelUI();
+    polyAudio.playClick();
+    this.notifyIsland(this.hwAccelEnabled ? '🚀 Direct KMS/DRM Vulkan: Enabled' : '🚀 Direct KMS/DRM Vulkan: Disabled');
+  }
+
+  updateHwAccelUI() {
+    const hwToggle = document.getElementById('hw-accel-toggle');
+    if (hwToggle) {
+      hwToggle.checked = !!this.hwAccelEnabled;
+    }
+  }
+
+  setDisplayScale(scale) {
+    this.displayScale = parseFloat(scale) || 1.0;
+    localStorage.setItem('poly_display_scale', String(this.displayScale));
+    document.documentElement.style.setProperty('--poly-display-scale', String(this.displayScale));
+    document.body.style.zoom = this.displayScale === 1.0 ? '' : this.displayScale;
+    this.updateDisplayScaleUI();
+    polyAudio.playClick();
+    this.notifyIsland(`🖥️ Display Scaling: ${Math.round(this.displayScale * 100)}%`);
+  }
+
+  updateDisplayScaleUI() {
+    const scaleSelect = document.getElementById('display-scale-select');
+    if (scaleSelect) {
+      scaleSelect.value = String(this.displayScale);
+    }
   }
 
   getAppKeyForWindow(w) {
     const titleLower = (w.title || '').toLowerCase();
-    const appKeys = ['files', 'browser', 'terminal', 'code', 'notes', 'music', 'telemetry', 'store', 'settings'];
+    const appKeys = ['files', 'browser', 'terminal', 'code', 'notes', 'music', 'telemetry', 'store', 'settings', 'canvas', 'arcade', 'calculator'];
     for (const key of appKeys) {
-      if (titleLower.includes(key) || (key === 'telemetry' && titleLower.includes('process'))) {
+      if (titleLower.includes(key) || 
+          (key === 'telemetry' && titleLower.includes('process')) ||
+          (key === 'arcade' && (titleLower.includes('arcade') || titleLower.includes('pong')))) {
         return key;
       }
     }
@@ -3558,7 +5668,8 @@ class PolyOS {
         if (e.target.closest('.dock-item-close-badge')) {
           e.stopPropagation();
           polyAudio.playClick();
-          this.closeWindow(w.id);
+          const force = e.shiftKey || e.altKey;
+          this.closeWindow(w.id, force);
           return;
         }
         if (this.activeWindowId === w.id && !w.isMinimized) {
@@ -3594,6 +5705,123 @@ class PolyOS {
     if (label) label.textContent = text;
     island.style.transform = 'scale(1.08)';
     setTimeout(() => { if (island) island.style.transform = 'scale(1)'; }, 250);
+  }
+
+  notify(title, body, icon = '🔔', appId = null) {
+    // 1. Dynamic Island subtle pulse
+    this.notifyIsland(`${icon} ${title}`);
+
+    // 2. Add to Notification Stack (Toast Notification)
+    let stack = document.getElementById('notification-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'notification-stack';
+      stack.className = 'notification-stack';
+      document.getElementById('desktop')?.appendChild(stack);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast-notification';
+    toast.innerHTML = `
+      <div class="toast-header">
+        <div class="toast-app-info">
+          <span class="toast-app-icon">${icon}</span>
+          <span class="toast-app-name">${appId ? appId.toUpperCase() : 'SYSTEM'}</span>
+        </div>
+        <span class="toast-time">Just now</span>
+      </div>
+      <div class="toast-body">
+        <strong>${title}</strong>
+        <p>${body}</p>
+      </div>
+    `;
+
+    // Slide in
+    stack.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.classList.add('toast-visible');
+    });
+
+    const dismissToast = () => {
+      if (toast.classList.contains('toast-closing')) return;
+      toast.classList.remove('toast-visible');
+      toast.classList.add('toast-closing');
+      setTimeout(() => {
+        toast.remove();
+      }, 350);
+    };
+
+    // Auto-dismiss after 5 seconds
+    const autoDismissTimer = setTimeout(dismissToast, 5000);
+
+    // Click toast: open associated app or Notification Center and dismiss
+    toast.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearTimeout(autoDismissTimer);
+      dismissToast();
+      if (appId) {
+        this.launchApp(appId);
+      } else {
+        const nc = document.getElementById('notification-center');
+        if (nc) nc.classList.remove('hidden');
+      }
+      polyAudio.playClick();
+    });
+
+    // 3. Add to Notification Center History
+    const list = document.getElementById('notif-list');
+    if (list) {
+      const card = document.createElement('div');
+      card.className = 'notif-card unread';
+      card.innerHTML = `
+        <div class="notif-card-header">
+          <span class="notif-card-app">${icon} ${appId ? appId.toUpperCase() : 'SYSTEM'}</span>
+          <span class="notif-time">Just now</span>
+        </div>
+        <div class="notif-card-body">
+          <strong>${title}</strong>
+          <p>${body}</p>
+        </div>
+      `;
+      if (appId) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+          this.launchApp(appId);
+        });
+      }
+      list.prepend(card);
+    }
+
+    // 4. Update Notification Badge Count
+    this.updateNotificationBadgeCount();
+    polyAudio.playSnap();
+  }
+
+  updateNotificationBadgeCount() {
+    const list = document.getElementById('notif-list');
+    const badge = document.getElementById('notif-badge');
+    const countBadge = document.getElementById('notif-count-badge');
+    if (!list) return;
+
+    const unreadCount = list.querySelectorAll('.notif-card.unread').length;
+    if (badge) {
+      if (unreadCount > 0) {
+        badge.classList.remove('hidden');
+        badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    if (countBadge) {
+      if (unreadCount > 0) {
+        countBadge.textContent = `${unreadCount} New`;
+        countBadge.style.opacity = '1';
+      } else {
+        countBadge.textContent = '0 New';
+        countBadge.style.opacity = '0.5';
+      }
+    }
   }
 
   parseMarkdown(md) {
@@ -3877,6 +6105,15 @@ class PolyOS {
   }
 
   launchApp(appName, initialParam = null) {
+    // If a background keep-alive instance of this app exists, restore it instead of duplicating
+    const existingBg = Array.from(this.windows.values()).find(w => 
+      this.getAppKeyForWindow(w) === appName && w.isBackgroundRunning
+    );
+    if (existingBg) {
+      this.restoreFromTray(existingBg.id);
+      return;
+    }
+
     switch(appName) {
       case 'browser':
         this.createWindow('Poly Browser', '🌐', 120, 80, 850, 520, `
@@ -3929,7 +6166,7 @@ class PolyOS {
           const history = [];
           let historyIdx = -1;
 
-          input.addEventListener('keydown', (e) => {
+          input.addEventListener('keydown', async (e) => {
             if (e.key === 'ArrowUp') {
               e.preventDefault();
               if (history.length > 0 && historyIdx > 0) {
@@ -3961,7 +6198,7 @@ class PolyOS {
 
               const parts = cmd.split(' ');
               const mainCmd = parts[0].toLowerCase();
-              const arg = parts.slice(1).join(' ');
+              const arg = parts.slice(1).join(' ').trim();
 
               const appendOut = (html) => {
                 const outLine = document.createElement('div');
@@ -3977,10 +6214,14 @@ class PolyOS {
   <span class="term-green">neofetch</span>      - System summary & ASCII branding
   <span class="term-green">ps / top</span>      - Process status table with CPU & RAM
   <span class="term-green">kill &lt;pid&gt;</span>    - Close active window by PID
-  <span class="term-green">ls</span>            - List directory contents
-  <span class="term-green">cat &lt;file&gt;</span>    - Display file contents
+  <span class="term-green">ls [folder]</span>   - List directory files from IndexedDB VFS
+  <span class="term-green">cat &lt;file&gt;</span>    - Read & display file contents from IndexedDB
+  <span class="term-green">touch &lt;file&gt;</span>  - Create new persistent file in IndexedDB VFS
+  <span class="term-green">rm &lt;file&gt;</span>     - Delete persistent file from IndexedDB VFS
+  <span class="term-green">vfs / df</span>      - Show IndexedDB VFS storage usage & stats
   <span class="term-green">matrix</span>        - Green digital rain simulation
   <span class="term-green">clear</span>         - Clear terminal screen
+  <span class="term-green">appearance</span>    - Switch system appearance (dark | light | auto)
   <span class="term-green">theme &lt;name&gt;</span>  - Switch live wallpaper (aurora, particles, cupertino)
   <span class="term-green">power &lt;mode&gt;</span>  - Set energy mode (low, balanced, turbo)
   <span class="term-green">date / uptime</span> - Timestamp and uptime metrics
@@ -4001,6 +6242,7 @@ class PolyOS {
   /___/____\\___\\  <span class="term-cyan">WM:</span> PolyWM (Aero Snap + Springs)
                   <span class="term-cyan">Theme:</span> Glassmorphic Dark
                   <span class="term-cyan">Memory:</span> 218 MB / 1024 MB ZRAM
+                  <span class="term-cyan">Storage:</span> IndexedDB VFS (PolyOS_VFS_DB)
                   <span class="term-cyan">Uptime:</span> 1 hr, 35 mins
 </pre>
                   `);
@@ -4024,9 +6266,19 @@ class PolyOS {
                     appendOut('<span class="term-red">Error: missing PID. Usage: kill &lt;pid&gt;</span>');
                   } else {
                     const pid = parseInt(arg);
-                    if (this.windows.has(pid)) {
-                      const target = this.windows.get(pid);
-                      this.closeWindow(pid);
+                    let target = this.windows.get(pid);
+                    let targetId = pid;
+                    if (!target) {
+                      for (const [wid, w] of this.windows.entries()) {
+                        if (wid + 100 === pid) {
+                          target = w;
+                          targetId = wid;
+                          break;
+                        }
+                      }
+                    }
+                    if (target) {
+                      this.closeWindow(targetId, true);
                       appendOut(`<span class="term-green">[SIGTERM] Successfully killed PID ${pid} (${target.title})</span>`);
                     } else {
                       appendOut(`<span class="term-red">Error: process PID ${pid} not found</span>`);
@@ -4038,6 +6290,10 @@ class PolyOS {
                   appendOut('<span class="term-green">Initializing Matrix digital neural stream...</span>');
                   let count = 0;
                   const matrixTimer = setInterval(() => {
+                    if (!root || !root.isConnected) {
+                      clearInterval(matrixTimer);
+                      return;
+                    }
                     const chars = '0123456789ABCDEFｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ';
                     let str = '';
                     for (let i = 0; i < 48; i++) {
@@ -4055,22 +6311,101 @@ class PolyOS {
                   break;
 
                 case 'ls':
-                  appendOut(`
+                  if (window.polyVFS) {
+                    const folder = arg || 'Projects';
+                    const items = await window.polyVFS.listFolder(folder);
+                    if (!items || items.length === 0) {
+                      appendOut(`<span class="term-gray">[empty folder: ${folder}]</span>`);
+                    } else {
+                      let out = `<div style="margin:4px 0; color:#aaa; font-size:11px;">Directory: <span class="term-cyan">${folder}</span> (${items.length} items)</div>`;
+                      out += '<div style="display:flex; flex-wrap:wrap; gap:14px; margin-top:4px;">';
+                      items.forEach(it => {
+                        const color = it.type === 'folder' ? 'term-cyan' : (it.type === 'code' ? 'term-yellow' : 'term-green');
+                        out += `<span class="${color}">${it.icon} ${it.name}</span>`;
+                      });
+                      out += '</div>';
+                      appendOut(out);
+                    }
+                  } else {
+                    appendOut(`
 <span class="term-cyan">📁 poly-compositor/</span>  <span class="term-cyan">📁 poly-daemon/</span>  <span class="term-cyan">📁 poly-shell/</span>
 <span class="term-yellow">🦀 physics.rs</span>        <span class="term-yellow">🐍 polyd.py</span>       <span class="term-green">⚙️ build-iso.sh</span>
 <span class="term-gray">📄 SPECIFICATION.md</span>  <span class="term-gray">📄 Poly_Whitepaper.pdf</span>
-                  `);
+                    `);
+                  }
                   break;
 
                 case 'cat':
-                  if (arg.includes('physics')) {
-                    appendOut('<span class="term-yellow">// Spring1D mass-spring-damper math\npub struct Spring1D { pub current: f32, pub target: f32, pub velocity: f32, pub stiffness: f32, pub damping: f32 }</span>');
-                  } else if (arg.includes('polyd') || arg.includes('daemon')) {
-                    appendOut('<span class="term-yellow"># cgroups v2 background process lifecycle manager\nFREEZE_PATH = "/sys/fs/cgroup/poly/cgroup.freeze"</span>');
-                  } else if (arg.includes('SPEC') || arg.includes('spec')) {
-                    appendOut('<span class="term-cyan"># Poly OS Architecture Specification: Decoupled 120Hz VSync Compositor + cgroups v2 Automated App Freezing</span>');
+                  if (!arg) {
+                    appendOut('<span class="term-red">Usage: cat &lt;filename&gt;</span>');
+                  } else if (window.polyVFS) {
+                    const content = await window.polyVFS.readFile(arg);
+                    if (content !== null) {
+                      const safeContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                      appendOut(`<pre style="margin:4px 0; max-height:260px; overflow-y:auto; color:#d1d5db; font-family:'JetBrains Mono',monospace; background:rgba(0,0,0,0.3); padding:8px; border-radius:6px;">${safeContent}</pre>`);
+                    } else {
+                      appendOut(`<span class="term-red">cat: ${arg}: No such file in IndexedDB VFS</span>`);
+                    }
                   } else {
                     appendOut(`<span class="term-gray">[File ${arg || 'null'}]: Preview available via desktop Quick Look or Files app.</span>`);
+                  }
+                  break;
+
+                case 'touch':
+                  if (!arg) {
+                    appendOut('<span class="term-red">Usage: touch &lt;filename&gt;</span>');
+                  } else if (window.polyVFS) {
+                    await window.polyVFS.writeFile(arg, '', 'Projects', 'code');
+                    appendOut(`<span class="term-green">✓ Created ${arg} in IndexedDB VFS (Projects)</span>`);
+                    this.notifyIsland(`📄 Created ${arg}`);
+                  }
+                  break;
+
+                case 'rm':
+                  if (!arg) {
+                    appendOut('<span class="term-red">Usage: rm &lt;filename&gt;</span>');
+                  } else if (window.polyVFS) {
+                    const ok = await window.polyVFS.unlink(arg);
+                    if (ok) {
+                      appendOut(`<span class="term-green">✓ Removed '${arg}' from IndexedDB VFS</span>`);
+                      this.notifyIsland(`🗑️ Deleted ${arg}`);
+                    } else {
+                      appendOut(`<span class="term-red">rm: cannot remove '${arg}': No such file</span>`);
+                    }
+                  }
+                  break;
+
+                case 'vfs':
+                case 'df':
+                  if (window.polyVFS) {
+                    const stats = await window.polyVFS.getStorageUsage();
+                    appendOut(`
+<div style="margin:4px 0; line-height:1.5;">
+<span class="term-cyan">Poly Persistent Virtual File System (VFS):</span>
+  <span class="term-green">Engine:</span> HTML5 IndexedDB (\`PolyOS_VFS_DB\`)
+  <span class="term-green">Total Files:</span> ${stats.count} files
+  <span class="term-green">Storage Used:</span> ${stats.kb} KB (${stats.bytes} bytes)
+  <span class="term-green">Default Folders:</span> Projects, Documents, Downloads, Recents
+</div>
+                    `);
+                  }
+                  break;
+
+                case 'widgets':
+                  if (typeof this.toggleWidgets === 'function') {
+                    if (arg === 'on' || arg === 'show') {
+                      document.body.classList.remove('desktop-widgets-hidden');
+                      localStorage.setItem('poly_desktop_widgets_visible', 'true');
+                      appendOut('<span class="term-green">✓ Desktop widgets shown</span>');
+                    } else if (arg === 'off' || arg === 'hide') {
+                      document.body.classList.add('desktop-widgets-hidden');
+                      localStorage.setItem('poly_desktop_widgets_visible', 'false');
+                      appendOut('<span class="term-yellow">✓ Desktop widgets hidden</span>');
+                    } else {
+                      this.toggleWidgets();
+                      const isHid = document.body.classList.contains('desktop-widgets-hidden');
+                      appendOut(`<span class="term-cyan">Desktop widgets toggled to: ${isHid ? 'HIDDEN' : 'VISIBLE'}</span>`);
+                    }
                   }
                   break;
 
@@ -4078,12 +6413,30 @@ class PolyOS {
                   stream.innerHTML = '';
                   break;
 
+                case 'notify':
+                  this.notify('Terminal Alert', arg || 'Test notification from poly-sh virtual terminal.', '⌨️', 'terminal');
+                  appendOut('<span class="term-green">✓ Toast notification dispatched</span>');
+                  break;
+
+                case 'appearance':
+                case 'mode':
+                  if (['dark', 'light', 'auto'].includes(arg)) {
+                    this.setAppearance(arg);
+                    appendOut(`<span class="term-green">System appearance switched to: ${arg.toUpperCase()}</span>`);
+                  } else {
+                    appendOut('<span class="term-yellow">Usage: appearance &lt;dark | light | auto&gt;</span>');
+                  }
+                  break;
+
                 case 'theme':
-                  if (arg) {
+                  if (['dark', 'light', 'auto'].includes(arg)) {
+                    this.setAppearance(arg);
+                    appendOut(`<span class="term-green">System appearance switched to: ${arg.toUpperCase()}</span>`);
+                  } else if (arg) {
                     this.setWallpaper(arg);
                     appendOut(`<span class="term-green">Wallpaper theme updated to: ${arg}</span>`);
                   } else {
-                    appendOut('<span class="term-yellow">Usage: theme &lt;aurora | particles | cupertino&gt;</span>');
+                    appendOut('<span class="term-yellow">Usage: theme &lt;dark | light | auto | aurora | particles | cupertino&gt;</span>');
                   }
                   break;
 
@@ -4164,7 +6517,7 @@ pub struct Spring1D {
         const savedMode = localStorage.getItem('poly_notes_mode') || 'split';
 
         const notesWin = this.createWindow('Notes & Ideas', '📝', 240, 110, 720, 460, `
-          <div class="notes-app-root">
+          <div class="notes-app-root" id="notes-app-root">
             <!-- Top Control Bar -->
             <div class="notes-top-bar">
               <div class="notes-title-wrap">
@@ -4206,7 +6559,7 @@ pub struct Spring1D {
             <div class="notes-workspace mode-${savedMode}">
               <!-- Editor Pane -->
               <div class="notes-editor-pane">
-                <textarea class="notes-textarea" spellcheck="false" placeholder="Write markdown here (GFM supported)..."></textarea>
+                <textarea class="notes-textarea" id="notes-body-text" spellcheck="false" placeholder="Write markdown here (GFM supported)..."></textarea>
               </div>
 
               <!-- Live Rendered Markdown Preview Pane -->
@@ -4608,10 +6961,18 @@ pub struct Spring1D {
             });
           }
 
-          // Visualizer render loop
+          // Visualizer render loop with auto-pause and disconnect termination
           let animActive = true;
           const renderVisualizer = () => {
-            if (!animActive || !ctx || !canvas) return;
+            if (!animActive || !ctx || !canvas || !canvas.isConnected) {
+              animActive = false;
+              return;
+            }
+            const musicWin = Array.from(this.windows.values()).find(w => w.element && w.element.contains(canvas));
+            if (musicWin && (musicWin.isMinimized || musicWin.isBackgroundRunning)) {
+              setTimeout(() => { if (animActive && canvas.isConnected) requestAnimationFrame(renderVisualizer); }, 300);
+              return;
+            }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             const data = polyAudio.getFrequencyData();
@@ -4744,73 +7105,116 @@ pub struct Spring1D {
           </div>
         `);
 
-        // Attach interactive virtual file system engine
-        setTimeout(() => {
+        // Attach interactive virtual file system engine (Backed by IndexedDB via polyVFS)
+        setTimeout(async () => {
           const root = document.getElementById('files-app-root');
           if (!root) return;
-
-          const vfs = {
-            'Projects': [
-              { name: 'poly-compositor', type: 'folder', meta: 'Rust • 14 files', tag: 'work', icon: '📁' },
-              { name: 'poly-daemon', type: 'folder', meta: 'cgroups v2 • 3 files', tag: 'urgent', icon: '📁' },
-              { name: 'poly-shell', type: 'folder', meta: '120Hz UI • 5 files', tag: 'work', icon: '📁' },
-              { name: 'physics.rs', type: 'code', meta: 'Rust Spring • 4.3 KB', tag: 'work', icon: '🦀', size: '4.3 KB' },
-              { name: 'polyd.py', type: 'code', meta: 'Freezer • 7.7 KB', tag: 'urgent', icon: '🐍', size: '7.7 KB' }
-            ],
-            'Documents': [
-              { name: 'SPECIFICATION.md', type: 'doc', meta: 'Markdown • 8.3 KB', tag: 'urgent', icon: '📄', size: '8.3 KB' },
-              { name: 'Poly_Whitepaper.pdf', type: 'pdf', meta: 'PDF Document • 4.2 MB', tag: 'work', icon: '📄', size: '4.2 MB' },
-              { name: 'Roadmap_2026.txt', type: 'doc', meta: 'Text Note • 1.8 KB', tag: 'personal', icon: '📝', size: '1.8 KB' }
-            ],
-            'Downloads': [
-              { name: '120Hz_Demo.mp4', type: 'video', meta: 'H.265 • 18.5 MB', tag: 'personal', icon: '🎬', size: '18.5 MB' },
-              { name: 'Cupertino_5K.heic', type: 'image', meta: '5K Image • 8.1 MB', tag: 'personal', icon: '🖼️', size: '8.1 MB' },
-              { name: 'build-iso.sh', type: 'script', meta: 'Shell Script • 3.1 KB', tag: 'work', icon: '⚙️', size: '3.1 KB' }
-            ],
-            'Recents': [
-              { name: 'physics.rs', type: 'code', meta: 'Rust Spring • 4.3 KB', tag: 'work', icon: '🦀', size: '4.3 KB' },
-              { name: 'SPECIFICATION.md', type: 'doc', meta: 'Markdown • 8.3 KB', tag: 'urgent', icon: '📄', size: '8.3 KB' },
-              { name: 'polyd.py', type: 'code', meta: 'Freezer • 7.7 KB', tag: 'urgent', icon: '🐍', size: '7.7 KB' }
-            ]
-          };
 
           let currentDir = 'Projects';
           const navHistory = ['Projects'];
           let histIdx = 0;
 
-          const renderGrid = () => {
+          const renderGrid = async () => {
             const grid = root.querySelector('#files-items-grid');
             const crumbBar = root.querySelector('#files-crumb-bar');
             const countInfo = root.querySelector('#files-count-info');
-            const items = vfs[currentDir] || [];
+            const storageNvmeLabel = root.querySelector('.sidebar-group-title ~ div span:last-child');
 
-            // Update Breadcrumbs
+            // Fetch real persistent files from IndexedDB
+            let items = await polyVFS.listFolder(currentDir);
+            if (!items || items.length === 0) {
+              // Fallback if empty folder
+              items = [];
+            }
+
+            // Update Hierarchical Breadcrumbs
             if (crumbBar) {
-              crumbBar.innerHTML = `
-                <span class="crumb" style="cursor:pointer;" data-jump="Projects">PolyOS</span>
-                <span class="crumb-sep">/</span>
-                <span class="crumb" style="cursor:pointer;" data-jump="${currentDir}">Users</span>
-                <span class="crumb-sep">/</span>
-                <span class="crumb" style="cursor:pointer;" data-jump="${currentDir}">rahul</span>
-                <span class="crumb-sep">/</span>
-                <span class="crumb" style="font-weight:600; color:#fff;">${currentDir}</span>
-              `;
+              const segments = currentDir.split('/').filter(Boolean);
+              let accum = '';
+              const parts = [
+                `<span class="crumb" style="cursor:pointer;" data-jump="Projects">PolyOS</span>`,
+                `<span class="crumb-sep">/</span>`,
+                `<span class="crumb" style="cursor:pointer;" data-jump="Projects">Users</span>`,
+                `<span class="crumb-sep">/</span>`,
+                `<span class="crumb" style="cursor:pointer;" data-jump="Projects">rahul</span>`
+              ];
+              segments.forEach((seg, idx) => {
+                accum = accum ? `${accum}/${seg}` : seg;
+                parts.push(`<span class="crumb-sep">/</span>`);
+                if (idx === segments.length - 1) {
+                  parts.push(`<span class="crumb" style="font-weight:600; color:#fff;">${seg}</span>`);
+                } else {
+                  parts.push(`<span class="crumb" style="cursor:pointer;" data-jump="${accum}">${seg}</span>`);
+                }
+              });
+              crumbBar.innerHTML = parts.join('');
+
+              crumbBar.querySelectorAll('.crumb[data-jump]').forEach(crumb => {
+                crumb.addEventListener('click', () => {
+                  const targetFolder = crumb.dataset.jump;
+                  if (targetFolder && targetFolder !== currentDir) {
+                    currentDir = targetFolder;
+                    navHistory.push(currentDir);
+                    histIdx = navHistory.length - 1;
+                    renderGrid();
+                  }
+                });
+              });
             }
 
             if (countInfo) countInfo.textContent = `${items.length} items`;
 
+            // Update NVMe SSD usage label with persistent IndexedDB stats
+            const usage = await polyVFS.getStorageUsage();
+            if (storageNvmeLabel) {
+              storageNvmeLabel.textContent = `${usage.kb} KB Used • IndexedDB`;
+            }
+
             if (grid) {
-              grid.innerHTML = items.map(item => `
-                <div class="file-card" data-name="${item.name}" data-type="${item.type}" data-size="${item.size || 'Folder'}" data-tag="${item.tag}">
-                  <div class="file-tag-dot tag-${item.tag}"></div>
-                  <div class="file-icon">${item.icon}</div>
-                  <div class="file-name">${item.name}</div>
-                  <div class="file-meta">${item.meta}</div>
-                </div>
-              `).join('');
+              if (items.length === 0) {
+                grid.innerHTML = `
+                  <div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">
+                    <div style="font-size:32px; margin-bottom:8px;">📁</div>
+                    <div style="font-size:13px; font-weight:600;">Folder is Empty</div>
+                    <div style="font-size:11px; margin-top:4px;">Files saved from Code Studio or Terminal will persist here in IndexedDB.</div>
+                  </div>
+                `;
+              } else {
+                grid.innerHTML = items.map(item => `
+                  <div class="file-card" draggable="true" data-name="${item.name}" data-type="${item.type}" data-size="${item.size || 'Folder'}" data-tag="${item.tag}">
+                    <div class="file-tag-dot tag-${item.tag}"></div>
+                    <div class="file-icon">${item.icon}</div>
+                    <div class="file-name">${item.name}</div>
+                    <div class="file-meta">${item.meta}</div>
+                  </div>
+                `).join('');
+              }
+
+              root._renderGrid = renderGrid;
 
               const cards = grid.querySelectorAll('.file-card');
               cards.forEach(card => {
+                card.setAttribute('draggable', 'true');
+                card.addEventListener('dragstart', (e) => {
+                  const name = card.dataset.name;
+                  const type = card.dataset.type;
+                  const size = card.dataset.size;
+                  const icon = card.querySelector('.file-icon')?.textContent || '📄';
+                  this.startDrag({
+                    type: 'file',
+                    data: { name, type, icon, size },
+                    sourceApp: 'files'
+                  }, e);
+                  e.dataTransfer.setData('text/plain', name);
+                  e.dataTransfer.setData('application/json', JSON.stringify({ name, type, icon, size }));
+                  card.classList.add('is-dragging');
+                });
+
+                card.addEventListener('dragend', () => {
+                  card.classList.remove('is-dragging');
+                  this.endDrag();
+                });
+
                 card.addEventListener('click', () => {
                   cards.forEach(c => c.classList.remove('selected'));
                   card.classList.add('selected');
@@ -4819,21 +7223,18 @@ pub struct Spring1D {
                   if (detailSpan) detailSpan.textContent = `Selected: ${name}`;
                 });
 
-                card.addEventListener('dblclick', () => {
+                card.addEventListener('dblclick', async () => {
                   const type = card.dataset.type;
                   const name = card.dataset.name;
                   const size = card.dataset.size;
                   if (type === 'folder') {
-                    if (vfs[name]) {
-                      currentDir = name;
-                      navHistory.push(name);
-                      histIdx = navHistory.length - 1;
-                      renderGrid();
-                    } else {
-                      this.notifyIsland(`📁 Opening folder: ${name}`);
-                    }
+                    const nextDir = currentDir ? (currentDir.endsWith('/') ? `${currentDir}${name}` : `${currentDir}/${name}`) : name;
+                    currentDir = nextDir;
+                    navHistory.push(currentDir);
+                    histIdx = navHistory.length - 1;
+                    await renderGrid();
                   } else {
-                    if (type === 'code' || /\.(rs|py|js|ts|html|md)$/i.test(name)) {
+                    if (type === 'code' || /\.(rs|py|js|ts|html|md|txt)$/i.test(name)) {
                       this.launchApp('code', name);
                     } else {
                       this.openQuickLook(name, type, size);
@@ -4894,14 +7295,26 @@ pub struct Spring1D {
         }, 50);
         break;
 
-      case 'settings':
+      case 'settings': {
+        const existingSettingsWin = Array.from(this.windows.values()).find(w => w.title === 'Poly System Settings');
+        if (existingSettingsWin) {
+          this.focusWindow(existingSettingsWin.id);
+          if (existingSettingsWin.isMinimized) this.restoreWindow(existingSettingsWin.id);
+          if (initialParam) {
+            const btn = existingSettingsWin.element.querySelector(`.sidebar-item[data-tab="${initialParam}"]`);
+            if (btn) btn.click();
+          }
+          break;
+        }
+
         const settingsWin = this.createWindow('Poly System Settings', '⚙️', 220, 120, 840, 540, `
           <div class="app-split-container" id="settings-app-root">
             <!-- Settings Sidebar -->
             <aside class="app-sidebar">
               <div class="sidebar-group-title">System Settings</div>
               <div class="sidebar-menu">
-                <button class="sidebar-item active" data-tab="display"><span class="icon">🖥️</span> Display & 120Hz</button>
+                <button class="sidebar-item active" data-tab="appearance"><span class="icon">🌓</span> Appearance</button>
+                <button class="sidebar-item" data-tab="display"><span class="icon">🖥️</span> Display & 120Hz</button>
                 <button class="sidebar-item" data-tab="themes"><span class="icon">🎨</span> Wallpapers & Sound</button>
                 <button class="sidebar-item" data-tab="energy"><span class="icon">⚡</span> Energy Engine</button>
                 <button class="sidebar-item" data-tab="multitask"><span class="icon">🪟</span> Multitasking</button>
@@ -4912,15 +7325,117 @@ pub struct Spring1D {
 
             <!-- Settings Content Pane -->
             <main class="app-main-pane">
-              <!-- Tab 1: Display & 120Hz -->
-              <div class="settings-content" id="tab-display" style="display: flex;">
+              <!-- Tab 0: Appearance & Theme Engine (Issue 11) -->
+              <div class="settings-content" id="tab-appearance" style="display: flex;">
+                <div class="settings-section-title">System Appearance</div>
+                <div class="settings-section-desc">Configure system-wide light, dark, or automated schedule themes with 300ms spring crossfade.</div>
+
+                <div class="settings-card">
+                  <div class="settings-label" style="margin-bottom:12px;">
+                    <span class="settings-label-title">Theme Mode</span>
+                    <span class="settings-label-sub" id="appearance-active-mode-label">Active: ${this.appearanceMode.toUpperCase()}</span>
+                  </div>
+
+                  <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px;" id="appearance-cards-container">
+                    <!-- Dark Card -->
+                    <div class="appearance-theme-card ${this.appearanceMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">
+                      <div class="appearance-preview-box" style="background: radial-gradient(circle at 20% 20%, #1e1e2f 0%, #0d0d15 100%); color:#f5f5f7;">
+                        <span>🌙 Dark</span>
+                      </div>
+                      <div style="font-weight:700; font-size:13px;">Dark Theme</div>
+                      <div style="font-size:11px; color:var(--text-muted);">Translucent obsidian glassmorphism</div>
+                    </div>
+
+                    <!-- Light Card -->
+                    <div class="appearance-theme-card ${this.appearanceMode === 'light' ? 'active' : ''}" data-theme-mode="light">
+                      <div class="appearance-preview-box" style="background: radial-gradient(circle at 20% 20%, #e8edf5 0%, #d2dbe8 100%); color:#1d1d1f; border-color:rgba(0,0,0,0.15);">
+                        <span>☀️ Light</span>
+                      </div>
+                      <div style="font-weight:700; font-size:13px;">Light Theme</div>
+                      <div style="font-size:11px; color:var(--text-muted);">Crisp high-contrast daylight glass</div>
+                    </div>
+
+                    <!-- Auto Card -->
+                    <div class="appearance-theme-card ${this.appearanceMode === 'auto' ? 'active' : ''}" data-theme-mode="auto">
+                      <div class="appearance-preview-box" style="background: linear-gradient(135deg, #1e1e2f 50%, #e8edf5 50%); color:#64d2ff;">
+                        <span>🌓 Auto</span>
+                      </div>
+                      <div style="font-weight:700; font-size:13px;">Auto (Scheduled)</div>
+                      <div style="font-size:11px; color:var(--text-muted);">Light (7 AM - 7 PM), Dark at night</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-card" style="margin-top:14px;">
+                  <div class="settings-row">
+                    <div class="settings-label">
+                      <span class="settings-label-title">Spring Crossfade Physics</span>
+                      <span class="settings-label-sub">Organic 350ms continuous cubic-bezier interpolation</span>
+                    </div>
+                    <span style="font-weight:600; font-size:12px; color:var(--accent-blue);">Hardware Sync</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 1: Display & 120Hz & Multi-Monitor (Issue 15) -->
+              <div class="settings-content hidden" id="tab-display" style="display: none;">
                 <div class="settings-section-title">Display & Fluidity</div>
-                <div class="settings-section-desc">Manage display refresh rate, ProMotion spring acceleration, and scaling.</div>
+                <div class="settings-section-desc">Manage multi-monitor arrangement, decoupled refresh rates, and ProMotion spring acceleration.</div>
+
+                <!-- Interactive Dual-Monitor Arrangement Canvas -->
+                <div class="display-arrangement-container">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div>
+                      <div style="font-weight:600; font-size:13px;">Display Arrangement & Topology</div>
+                      <div style="font-size:11px; color:var(--text-muted);">Drag monitors to rearrange spatial positions. Displays match Linux DRM/KMS outputs.</div>
+                    </div>
+                    <div class="display-telemetry-badge">
+                      <span id="d2-status-indicator" style="color: #30d158; font-weight: 600;">DP-1 Online (Connected)</span>
+                    </div>
+                  </div>
+
+                  <div class="display-arrangement-canvas" id="display-arrangement-canvas">
+                    <!-- Monitor 1: HDMI-A-1 Primary -->
+                    <div class="monitor-preview-box is-primary" id="monitor-box-1" style="order: 1;">
+                      <div class="monitor-num-badge">1</div>
+                      <div class="monitor-name-tag">🖥️ HDMI-A-1</div>
+                      <div class="monitor-res-tag">2560×1440 @ 120Hz</div>
+                      <span class="monitor-role-pill primary">Primary Display</span>
+                    </div>
+
+                    <!-- Monitor 2: DP-1 Secondary Extended -->
+                    <div class="monitor-preview-box is-secondary" id="monitor-box-2" style="order: 2;">
+                      <div class="monitor-num-badge">2</div>
+                      <div class="monitor-name-tag">🖥️ DP-1 (4K)</div>
+                      <div class="monitor-res-tag">3840×2160 @ 60Hz</div>
+                      <span class="monitor-role-pill secondary">Secondary Extended</span>
+                    </div>
+                  </div>
+
+                  <div class="display-controls-toolbar">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:12px; color:var(--text-muted);">Mode:</span>
+                      <div class="display-mode-selector" id="display-mode-selector">
+                        <button class="display-mode-btn active" data-mode="extended">Extended Desktop</button>
+                        <button class="display-mode-btn" data-mode="mirror">Mirror Display</button>
+                      </div>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <button class="btn-open-d2-window" id="btn-spawn-d2-window">
+                        <span>🖥️</span> Open Secondary Display Window
+                      </button>
+                      <button class="d2-btn" id="btn-recall-all-settings" style="font-size:11px;" title="Recall all windows back to Display 1">
+                        ↩ Recall All
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
                 <div class="settings-card">
                   <div class="settings-row">
                     <div class="settings-label">
-                      <span class="settings-label-title">Refresh Rate</span>
+                      <span class="settings-label-title">Primary Display Refresh Rate</span>
                       <span class="settings-label-sub">Decoupled compositor render loop timing</span>
                     </div>
                     <div class="segmented-control" id="refresh-rate-control">
@@ -4946,7 +7461,20 @@ pub struct Spring1D {
                       <span class="settings-label-title">Display Scaling</span>
                       <span class="settings-label-sub">Vector crisp rendering for high-DPI screens</span>
                     </div>
-                    <span style="font-weight:600; font-size:12px; color:#0a84ff;">125% (Recommended)</span>
+                    <select id="display-scale-select" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:#fff; border-radius:6px; padding:4px 8px; font-size:12px; font-weight:600; outline:none;">
+                      <option value="1.0">100%</option>
+                      <option value="1.25" selected>125% (Recommended)</option>
+                      <option value="1.5">150%</option>
+                      <option value="2.0">200% (HiDPI)</option>
+                    </select>
+                  </div>
+
+                  <div class="settings-row">
+                    <div class="settings-label">
+                      <span class="settings-label-title">Cross-Display Edge Crossing</span>
+                      <span class="settings-label-sub">Seamless cursor & window transit across virtual monitor boundaries</span>
+                    </div>
+                    <span style="font-weight:600; font-size:12px; color:#30d158;">Active (Right Boundary)</span>
                   </div>
                 </div>
               </div>
@@ -5128,6 +7656,45 @@ pub struct Spring1D {
                     <button class="seg-btn active" id="purge-cache-btn" style="padding:5px 12px; font-size:11px;">Free Inactive RAM</button>
                   </div>
                 </div>
+
+                <!-- Persistent Virtual File System (IndexedDB VFS) Card (Issue 13) -->
+                <div class="settings-card" style="margin-top:14px;">
+                  <div class="settings-row" style="align-items:flex-start;">
+                    <div class="settings-label">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="settings-label-title">Persistent Virtual File System (VFS)</span>
+                        <span class="zram-badge-live" style="background:rgba(48,209,88,0.18); color:#30d158; border-color:rgba(48,209,88,0.35);">IndexedDB Active</span>
+                      </div>
+                      <span class="settings-label-sub">High-durability browser IndexedDB storage engine (<code>PolyOS_VFS_DB</code>). Files persist across reboots, tab refreshes, and app launches.</span>
+                    </div>
+                  </div>
+
+                  <div class="zram-metrics-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08);">
+                    <div class="zram-metric-item">
+                      <div class="metric-title" style="font-size:10px; color:#888; text-transform:uppercase;">Files Indexed</div>
+                      <div class="metric-val" id="vfs-files-count" style="font-size:15px; font-weight:600; color:#fff; font-family:'JetBrains Mono',monospace;">-- files</div>
+                      <div class="metric-hint" style="font-size:10px; color:#666;">B-Tree object store</div>
+                    </div>
+                    <div class="zram-metric-item">
+                      <div class="metric-title" style="font-size:10px; color:#888; text-transform:uppercase;">Storage Consumed</div>
+                      <div class="metric-val text-accent-cyan" id="vfs-storage-used" style="font-size:15px; font-weight:600; font-family:'JetBrains Mono',monospace;">-- KB</div>
+                      <div class="metric-hint" style="font-size:10px; color:#666;">HTML5 IndexedDB</div>
+                    </div>
+                    <div class="zram-metric-item">
+                      <div class="metric-title" style="font-size:10px; color:#888; text-transform:uppercase;">VFS Status</div>
+                      <div class="metric-val text-accent-emerald" style="font-size:15px; font-weight:600; font-family:'JetBrains Mono',monospace;">Persistent</div>
+                      <div class="metric-hint" style="font-size:10px; color:#666;">POSIX async compliant</div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06);">
+                    <span style="font-size:11px; color:#888;">Synchronized with Code Studio, Terminal, and Files Explorer</span>
+                    <div style="display:flex; gap:8px;">
+                      <button class="seg-btn" id="vfs-open-files-btn" style="padding:5px 12px; font-size:11px;">Open Files</button>
+                      <button class="seg-btn" id="vfs-reset-defaults-btn" style="padding:5px 12px; font-size:11px; border-color:rgba(255,69,58,0.4); color:#ff453a;">Reset VFS</button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- Tab 5: About Poly OS -->
@@ -5182,8 +7749,22 @@ pub struct Spring1D {
               if (targetTab) {
                 targetTab.classList.remove('hidden');
                 targetTab.style.display = 'flex';
+                if (tabId === 'storage') {
+                  updateVfsUI();
+                }
               }
               polyAudio.playClick();
+            });
+          });
+
+          // Appearance Theme Mode selection buttons (Issue 11)
+          root.querySelectorAll('.appearance-theme-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const mode = card.dataset.themeMode;
+              if (mode) {
+                this.setAppearance(mode);
+              }
             });
           });
 
@@ -5198,6 +7779,69 @@ pub struct Spring1D {
             });
           });
 
+          // Multi-Monitor simulation controls (Issue 15)
+          const spawnD2Btn = root.querySelector('#btn-spawn-d2-window');
+          if (spawnD2Btn) {
+            spawnD2Btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (this.displayManager) {
+                this.displayManager.openSecondaryDisplayWindow();
+                polyAudio.playClick();
+              }
+            });
+          }
+
+          const recallAllBtn = root.querySelector('#btn-recall-all-settings');
+          if (recallAllBtn) {
+            recallAllBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (this.displayManager) {
+                this.displayManager.recallAllWindows();
+                polyAudio.playChime();
+              }
+            });
+          }
+
+          // Display Mode Selector (Extended vs Mirror)
+          root.querySelectorAll('#display-mode-selector .display-mode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              root.querySelectorAll('#display-mode-selector .display-mode-btn').forEach(b => b.classList.remove('active'));
+              btn.classList.add('active');
+              const mode = btn.dataset.mode;
+              if (this.displayManager) {
+                this.displayManager.displayMode = mode;
+                this.notifyIsland(`🖥️ Display Mode: ${mode === 'extended' ? 'Extended Desktop' : 'Mirror Display'}`);
+                polyAudio.playClick();
+              }
+            });
+          });
+
+          // Draggable / Swap Arrangement Canvas
+          const m1 = root.querySelector('#monitor-box-1');
+          const m2 = root.querySelector('#monitor-box-2');
+          if (m1 && m2) {
+            [m1, m2].forEach(box => {
+              box.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const currentOrder1 = parseInt(m1.style.order || '1', 10);
+                const newOrder1 = currentOrder1 === 1 ? 2 : 1;
+                const newOrder2 = newOrder1 === 1 ? 2 : 1;
+                m1.style.order = newOrder1;
+                m2.style.order = newOrder2;
+                if (this.displayManager) {
+                  this.displayManager.relativePosition = newOrder1 === 1 ? 'right' : 'left';
+                  this.notifyIsland(`🖥️ Layout updated: Display 2 positioned on ${this.displayManager.relativePosition.toUpperCase()}`);
+                  polyAudio.playSnap();
+                }
+              });
+            });
+          }
+
+          if (this.displayManager) {
+            this.displayManager.updateDisplayUI();
+          }
+
           // Wallpaper selection buttons
           root.querySelectorAll('.wallpaper-card-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -5206,6 +7850,42 @@ pub struct Spring1D {
               this.setWallpaper(wp);
             });
           });
+
+          // Hardware Acceleration Toggle
+          const hwToggle = root.querySelector('#hw-accel-toggle');
+          if (hwToggle) {
+            hwToggle.checked = !!this.hwAccelEnabled;
+            hwToggle.addEventListener('change', (e) => {
+              this.setHwAcceleration(e.target.checked);
+            });
+          }
+
+          // Display Scaling Select
+          const scaleSelect = root.querySelector('#display-scale-select');
+          if (scaleSelect) {
+            scaleSelect.value = String(this.displayScale);
+            scaleSelect.addEventListener('change', (e) => {
+              this.setDisplayScale(e.target.value);
+            });
+          }
+
+          // Process Freezer Toggle
+          const freezerToggle = root.querySelector('#freezer-toggle');
+          if (freezerToggle) {
+            freezerToggle.checked = !!this.freezerEnabled;
+            freezerToggle.addEventListener('change', (e) => {
+              this.setFreezer(e.target.checked);
+            });
+          }
+
+          // Aero Snap Toggle
+          const snapToggle = root.querySelector('#snap-toggle');
+          if (snapToggle) {
+            snapToggle.checked = !!this.aeroSnapEnabled;
+            snapToggle.addEventListener('change', (e) => {
+              this.setAeroSnap(e.target.checked);
+            });
+          }
 
           // Sound toggle
           const soundToggle = root.querySelector('#sound-feedback-toggle');
@@ -5223,8 +7903,15 @@ pub struct Spring1D {
           const stiffLabel = root.querySelector('#spring-stiff-label');
           if (stiffSlider) {
             stiffSlider.addEventListener('input', (e) => {
-              const val = e.target.value;
+              const val = parseInt(e.target.value, 10);
               if (stiffLabel) stiffLabel.textContent = `Current: ${val} N/m (${val > 300 ? 'Ultra-Crisp' : 'Balanced'})`;
+              this.windows.forEach(w => {
+                if (w.springX) w.springX.stiffness = val;
+                if (w.springY) w.springY.stiffness = val;
+                if (w.springW) w.springW.stiffness = val;
+                if (w.springH) w.springH.stiffness = val;
+              });
+              this.wakeRenderLoop();
             });
           }
 
@@ -5232,8 +7919,15 @@ pub struct Spring1D {
           const dampLabel = root.querySelector('#spring-damp-label');
           if (dampSlider) {
             dampSlider.addEventListener('input', (e) => {
-              const val = (e.target.value / 100).toFixed(2);
-              if (dampLabel) dampLabel.textContent = `Current: ${val} (${val < 0.8 ? 'Bouncy' : val == 1.0 ? 'Critical' : 'Natural iOS'})`;
+              const val = (e.target.value / 100);
+              if (dampLabel) dampLabel.textContent = `Current: ${val.toFixed(2)} (${val < 0.8 ? 'Bouncy' : val == 1.0 ? 'Critical' : 'Natural iOS'})`;
+              this.windows.forEach(w => {
+                if (w.springX) w.springX.damping = val;
+                if (w.springY) w.springY.damping = val;
+                if (w.springW) w.springW.damping = val;
+                if (w.springH) w.springH.damping = val;
+              });
+              this.wakeRenderLoop();
             });
           }
 
@@ -5266,6 +7960,39 @@ pub struct Spring1D {
           }
           this.updateZramUI();
 
+          // Persistent IndexedDB VFS metrics & actions (Issue 13)
+          const updateVfsUI = async () => {
+            if (!window.polyVFS) return;
+            const stats = await window.polyVFS.getStorageUsage();
+            const countEl = root.querySelector('#vfs-files-count');
+            const usedEl = root.querySelector('#vfs-storage-used');
+            if (countEl) countEl.textContent = `${stats.count} files`;
+            if (usedEl) usedEl.textContent = `${stats.kb} KB`;
+          };
+          updateVfsUI();
+
+          const vfsOpenFilesBtn = root.querySelector('#vfs-open-files-btn');
+          if (vfsOpenFilesBtn) {
+            vfsOpenFilesBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.launchApp('files');
+            });
+          }
+
+          const vfsResetBtn = root.querySelector('#vfs-reset-defaults-btn');
+          if (vfsResetBtn) {
+            vfsResetBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              vfsResetBtn.textContent = 'Resetting...';
+              await window.polyVFS.resetDefaults();
+              await updateVfsUI();
+              vfsResetBtn.textContent = '✓ Reset Complete';
+              polyAudio.playSuccess();
+              this.notify('VFS Reset', 'IndexedDB virtual file system restored to factory defaults.', '🔄', 'settings');
+              setTimeout(() => { vfsResetBtn.textContent = 'Reset VFS'; }, 2500);
+            });
+          }
+
           // Check for Updates Button
           const updatesBtn = root.querySelector('#check-updates-btn');
           if (updatesBtn) {
@@ -5281,8 +8008,14 @@ pub struct Spring1D {
               }, 600);
             });
           }
+
+          if (initialParam) {
+            const targetBtn = root.querySelector(`.sidebar-item[data-tab="${initialParam}"]`);
+            if (targetBtn) targetBtn.click();
+          }
         }, 30);
         break;
+      }
 
       case 'store':
         this.createWindow('Poly App Store', '🛍️', 260, 100, 840, 560, `
@@ -5663,6 +8396,10 @@ console.log("Aero Snapping active. Mass-spring physics initialized.");`
             try {
               localStorage.setItem('poly_code_files_v3', JSON.stringify(files));
               localStorage.setItem('poly_code_active_file', currentFile);
+              if (window.polyVFS && currentFile && files[currentFile]) {
+                const meta = getFileMeta(currentFile);
+                window.polyVFS.writeFile(currentFile, files[currentFile].content, 'Projects', meta.lang === 'markdown' ? 'doc' : 'code');
+              }
             } catch (e) {}
           };
 
@@ -5771,13 +8508,17 @@ console.log("Aero Snapping active. Mass-spring physics initialized.");`
             saveBuffers();
           };
 
-          window.polyCodeStudioSwitchFile = (fn) => {
+          window.polyCodeStudioSwitchFile = async (fn) => {
             if (!files[fn]) {
               const meta = getFileMeta(fn);
+              let vfsContent = null;
+              if (window.polyVFS) {
+                vfsContent = await window.polyVFS.readFile(fn);
+              }
               files[fn] = {
                 lang: meta.lang,
                 icon: meta.icon,
-                content: `// ${fn} loaded from Virtual File System\n`
+                content: vfsContent !== null ? vfsContent : `// ${fn} loaded from Virtual File System\n`
               };
             }
             switchFile(fn);
@@ -5805,6 +8546,22 @@ console.log("Aero Snapping active. Mass-spring physics initialized.");`
           const closers = [')', ']', '}', '"', "'", '`'];
 
           textarea.addEventListener('keydown', (e) => {
+            // Ctrl+S or Cmd+S -> Save to Persistent IndexedDB VFS
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+              e.preventDefault();
+              if (currentFile && files[currentFile] && textarea) {
+                files[currentFile].content = textarea.value;
+              }
+              saveBuffers();
+              if (window.polyVFS && currentFile && files[currentFile]) {
+                const meta = getFileMeta(currentFile);
+                window.polyVFS.writeFile(currentFile, textarea.value, 'Projects', meta.lang === 'markdown' ? 'doc' : 'code');
+              }
+              polyAudio.playChime();
+              this.notify('File Saved', `${currentFile} persisted to IndexedDB VFS.`, '💾', 'code');
+              return;
+            }
+
             // Ctrl+Enter or Cmd+Enter -> Run
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
               e.preventDefault();
@@ -5955,11 +8712,15 @@ console.log("Aero Snapping active. Mass-spring physics initialized.");`
                     icon: meta.icon,
                     content: initialContent
                   };
+
+                  if (window.polyVFS) {
+                    window.polyVFS.writeFile(name, initialContent, 'Projects', meta.lang === 'markdown' ? 'doc' : 'code');
+                  }
                 }
 
                 closeModal();
                 switchFile(name);
-                this.notifyIsland(`📄 Created ${name}`);
+                this.notify('File Created', `${name} added to Projects and saved in IndexedDB.`, '📄', 'code');
                 polyAudio.playClick();
               };
 
@@ -5972,7 +8733,29 @@ console.log("Aero Snapping active. Mass-spring physics initialized.");`
             });
           }
 
-          // Initial load
+          // Initial load & IndexedDB VFS hydration
+          if (window.polyVFS) {
+            window.polyVFS.listFolder('Projects').then(projectFiles => {
+              if (projectFiles && projectFiles.length > 0) {
+                let anyAdded = false;
+                projectFiles.forEach(pf => {
+                  if (pf.type !== 'folder' && pf.content && !files[pf.name]) {
+                    const meta = getFileMeta(pf.name);
+                    files[pf.name] = {
+                      lang: meta.lang,
+                      icon: meta.icon,
+                      content: pf.content
+                    };
+                    anyAdded = true;
+                  }
+                });
+                if (anyAdded) {
+                  renderTabs();
+                }
+              }
+            });
+          }
+
           switchFile(currentFile);
 
           // Run Script Action
@@ -6410,7 +9193,7 @@ Process finished with exit code 0.`;
   installStoreApp(appId, appName, appIcon) {
     this.installedApps.add(appId);
     polyAudio.playSuccess();
-    this.notifyIsland(`🛍️ Installed ${appName} to Dock & Start Menu!`);
+    this.notify('App Installed', `${appName} is now installed and pinned to your Dock.`, appIcon, appId);
 
     // Dynamically inject into Dock
     const dockCenter = document.getElementById('dock-pinned-apps');
@@ -6447,7 +9230,7 @@ Process finished with exit code 0.`;
       item.addEventListener('click', () => {
         polyAudio.playClick();
         this.launchApp(appId);
-        document.getElementById('start-menu').classList.add('hidden');
+        document.getElementById('start-menu')?.classList.add('hidden');
       });
       const settingsGrid = startGrid.querySelector('[data-launch="settings"]');
       if (settingsGrid) {
@@ -6461,19 +9244,132 @@ Process finished with exit code 0.`;
   createWindow(title, icon, x, y, w, h, contentHtml, workspace = this.currentWorkspace) {
     const id = this.nextWindowId++;
     const win = new WindowInstance(id, title, icon, x, y, w, h, contentHtml, workspace);
+    const appKey = this.getAppKeyForWindow(win);
+    if (['music', 'terminal', 'telemetry'].includes(appKey)) {
+      win.keepAlive = true;
+    }
     this.windows.set(id, win);
     this.focusWindow(id);
     this.updateDockIndicators();
     this.renderTaskbarWindowStrip();
+    this.wakeRenderLoop();
     return win;
   }
 
-  closeWindow(id) {
+  closeWindow(id, forceQuit = false) {
     const win = this.windows.get(id);
     if (!win) return;
+
+    // Clean up any active snap overlays or layout flyouts
+    this.closeSnapAssist();
+    this.hideSnapLayoutsFlyout();
+
+    // Multi-Display synchronization: if window was on Display 2, notify Display 2
+    if (this.displayManager && this.displayManager.windowsOnDisplay2 && this.displayManager.windowsOnDisplay2.has(id)) {
+      if (this.displayManager.channel) {
+        this.displayManager.channel.postMessage({ type: 'CLOSE_WINDOW_REMOTE', id });
+      }
+      this.displayManager.windowsOnDisplay2.delete(id);
+      this.displayManager.updateDisplayUI();
+    }
+
+    const appKey = this.getAppKeyForWindow(win);
+
+    // Repeat close detection: if user clicks close on a keep-alive window twice within 2.5s, force quit!
+    const now = Date.now();
+    const isRepeatClose = win._lastCloseClickTime && (now - win._lastCloseClickTime < 2500);
+    win._lastCloseClickTime = now;
+
+    const shouldForceQuit = forceQuit || isRepeatClose;
+    const isKeepAlive = !shouldForceQuit && (win.keepAlive || ['music', 'terminal', 'telemetry'].includes(appKey));
+
+    if (isKeepAlive) {
+      if (win.isMaximized) {
+        win.isMaximized = false;
+        if (win.element) {
+          win.element.classList.remove('maximized');
+          win.element.style.position = 'absolute';
+          win.element.style.top = '';
+          win.element.style.left = '';
+          win.element.style.right = '';
+          win.element.style.bottom = '';
+          win.element.style.width = '';
+          win.element.style.height = '';
+          win.element.style.transform = '';
+          win.element.style.borderRadius = '';
+          win.element.style.border = '';
+          win.element.style.boxShadow = '';
+          win.element.style.margin = '';
+          win.element.style.zIndex = '100';
+          const maxBtn = win.element.querySelector('.btn-max');
+          if (maxBtn) {
+            maxBtn.title = "Aero Maximize / Full Screen";
+            maxBtn.classList.remove('is-restore');
+            maxBtn.textContent = "□";
+          }
+        }
+        this.exitImmersiveMode();
+      }
+      win.isBackgroundRunning = true;
+      win.springScale.setTarget(0.8);
+      win.springOpacity.setTarget(0.0);
+
+      // Defocus if this was active window and focus topmost visible window
+      if (this.activeWindowId === id) {
+        this.activeWindowId = null;
+        const visibleWins = Array.from(this.windows.values())
+          .filter(w => !w.isMinimized && !w.isBackgroundRunning && w.workspace === this.currentWorkspace)
+          .sort((a, b) => (parseInt(b.element?.style?.zIndex) || 0) - (parseInt(a.element?.style?.zIndex) || 0));
+        if (visibleWins.length > 0) {
+          this.focusWindow(visibleWins[0].id);
+        } else {
+          const appTitleEl = document.getElementById('focused-app-name');
+          if (appTitleEl) appTitleEl.textContent = 'Poly OS';
+        }
+      }
+
+      setTimeout(() => {
+        if (win.isBackgroundRunning && win.element) {
+          win.element.style.display = 'none';
+        }
+        this.updateSystemTray();
+        this.updateDockIndicators();
+        this.renderTaskbarWindowStrip();
+      }, 180);
+
+      this.notifyIsland(`📦 ${win.title} hidden to tray (Click ✕ again or Shift+✕ to Quit)`);
+      polyAudio.playSnap();
+      return;
+    }
+
+    const wasBg = win.isBackgroundRunning;
+    win.isBackgroundRunning = false;
+    if (wasBg) {
+      this.updateSystemTray();
+    }
+
     if (win.isMaximized) {
+      win.isMaximized = false;
       this.exitImmersiveMode();
     }
+    if (appKey === 'music' && window.polyAudio && polyAudio.musicPlaying) {
+      polyAudio.toggleMusic();
+    }
+
+    // Defocus if this was active window and focus next topmost visible window
+    if (this.activeWindowId === id) {
+      this.activeWindowId = null;
+      const visibleWins = Array.from(this.windows.values())
+        .filter(w => w.id !== id && !w.isMinimized && !w.isBackgroundRunning && w.workspace === this.currentWorkspace)
+        .sort((a, b) => (parseInt(b.element?.style?.zIndex) || 0) - (parseInt(a.element?.style?.zIndex) || 0));
+      if (visibleWins.length > 0) {
+        this.focusWindow(visibleWins[0].id);
+      } else {
+        const appTitleEl = document.getElementById('focused-app-name');
+        if (appTitleEl) appTitleEl.textContent = 'Poly OS';
+      }
+    }
+
     win.springScale.setTarget(0.85);
     win.springOpacity.setTarget(0.0);
     setTimeout(() => {
@@ -6481,7 +9377,229 @@ Process finished with exit code 0.`;
       this.windows.delete(id);
       this.updateDockIndicators();
       this.renderTaskbarWindowStrip();
+      this.updateSystemTray();
     }, 200);
+
+    if (shouldForceQuit && ['music', 'terminal', 'telemetry'].includes(appKey)) {
+      this.notifyIsland(`🛑 Terminated ${win.title}`);
+    }
+    polyAudio.playSnap();
+  }
+
+  initSystemTray() {
+    const trayMenu = document.getElementById('tray-context-menu');
+    document.addEventListener('click', (e) => {
+      if (trayMenu && !trayMenu.contains(e.target) && !e.target.closest('.tray-chip')) {
+        trayMenu.classList.add('hidden');
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && trayMenu && !trayMenu.classList.contains('hidden')) {
+        trayMenu.classList.add('hidden');
+      }
+    });
+
+    // Periodic check to keep tray pulse/status in sync (e.g. music playback changes)
+    setInterval(() => {
+      if (Array.from(this.windows.values()).some(w => w.isBackgroundRunning)) {
+        this.updateSystemTray();
+      }
+    }, 1500);
+
+    this.updateSystemTray();
+  }
+
+  updateSystemTray() {
+    const tray = document.getElementById('system-tray');
+    if (!tray) return;
+
+    const bgWins = Array.from(this.windows.values()).filter(w => w.isBackgroundRunning);
+    if (bgWins.length === 0) {
+      tray.innerHTML = '';
+      tray.style.display = 'none';
+      return;
+    }
+
+    tray.style.display = 'flex';
+    tray.innerHTML = '';
+
+    bgWins.forEach(win => {
+      const appKey = this.getAppKeyForWindow(win);
+      let dotClass = 'active';
+      let statusDesc = 'Background Active';
+
+      if (appKey === 'music') {
+        if (window.polyAudio && polyAudio.musicPlaying) {
+          dotClass = 'playing';
+          const track = polyAudio.tracks[polyAudio.currentTrackIndex]?.title || 'Unknown Track';
+          statusDesc = `Playing: ${track}`;
+        } else {
+          dotClass = 'idle';
+          statusDesc = 'Paused';
+        }
+      } else if (appKey === 'terminal') {
+        dotClass = 'active';
+        statusDesc = 'Daemon Shell Active';
+      } else if (appKey === 'telemetry') {
+        dotClass = 'active';
+        statusDesc = 'Kernel Telemetry Polling';
+      }
+
+      const chip = document.createElement('div');
+      chip.className = 'tray-chip';
+      chip.dataset.windowId = win.id;
+      chip.title = `${win.title} (${statusDesc})\nLeft-click: Restore window\nRight-click: Options`;
+      chip.innerHTML = `
+        <span class="tray-chip-icon">${win.icon}</span>
+        <span class="tray-pulse-dot ${dotClass}"></span>
+      `;
+
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const trayMenu = document.getElementById('tray-context-menu');
+        if (trayMenu) trayMenu.classList.add('hidden');
+        this.restoreFromTray(win.id);
+      });
+
+      chip.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showTrayContextMenu(win, e.clientX, e.clientY);
+      });
+
+      tray.appendChild(chip);
+    });
+  }
+
+  showTrayContextMenu(win, x, y) {
+    const menu = document.getElementById('tray-context-menu');
+    if (!menu) return;
+
+    const appKey = this.getAppKeyForWindow(win);
+    let appSpecificHtml = '';
+
+    if (appKey === 'music') {
+      const isPlaying = window.polyAudio && polyAudio.musicPlaying;
+      appSpecificHtml = `
+        <div class="tray-menu-item" id="tray-action-music-toggle">
+          <span>${isPlaying ? '⏸ Pause Playback' : '▶ Play Music'}</span>
+        </div>
+        <div class="tray-menu-item" id="tray-action-music-next">
+          <span>⏭ Next Track</span>
+        </div>
+      `;
+    } else if (appKey === 'terminal') {
+      appSpecificHtml = `
+        <div class="tray-menu-item" id="tray-action-term-wake">
+          <span>⚡ Send SIGCONT (Wake Shell)</span>
+        </div>
+      `;
+    } else if (appKey === 'telemetry') {
+      appSpecificHtml = `
+        <div class="tray-menu-item" id="tray-action-telemetry-ping">
+          <span>📊 Kernel Heartbeat Check</span>
+        </div>
+      `;
+    }
+
+    menu.innerHTML = `
+      <div class="tray-menu-header">
+        <span class="tray-menu-header-icon">${win.icon}</span>
+        <div class="tray-menu-header-info">
+          <span class="tray-menu-header-title">${win.title}</span>
+          <span class="tray-menu-header-sub">Background Keep-Alive Daemon</span>
+        </div>
+      </div>
+      <div class="tray-menu-item" id="tray-action-restore">
+        <span>🪟 Restore Window</span>
+      </div>
+      ${appSpecificHtml}
+      <div class="tray-menu-sep"></div>
+      <div class="tray-menu-item danger" id="tray-action-quit">
+        <span>✕ Quit & Terminate</span>
+      </div>
+    `;
+
+    // Hook events
+    menu.querySelector('#tray-action-restore')?.addEventListener('click', () => {
+      menu.classList.add('hidden');
+      this.restoreFromTray(win.id);
+    });
+
+    if (appKey === 'music') {
+      menu.querySelector('#tray-action-music-toggle')?.addEventListener('click', () => {
+        menu.classList.add('hidden');
+        if (window.polyAudio) {
+          polyAudio.toggleMusic();
+          this.updateSystemTray();
+          this.notifyIsland(polyAudio.musicPlaying ? `🎵 ${polyAudio.tracks[polyAudio.currentTrackIndex]?.title || 'Music Playing'}` : '⏸ Audio Paused');
+        }
+      });
+      menu.querySelector('#tray-action-music-next')?.addEventListener('click', () => {
+        menu.classList.add('hidden');
+        if (window.polyAudio) {
+          const tr = polyAudio.nextTrack();
+          this.updateSystemTray();
+          this.notifyIsland(`⏭ ${tr.title}`);
+        }
+      });
+    } else if (appKey === 'terminal') {
+      menu.querySelector('#tray-action-term-wake')?.addEventListener('click', () => {
+        menu.classList.add('hidden');
+        this.notifyIsland('⌨️ Shell session active in background');
+        polyAudio.playSnap();
+      });
+    } else if (appKey === 'telemetry') {
+      menu.querySelector('#tray-action-telemetry-ping')?.addEventListener('click', () => {
+        menu.classList.add('hidden');
+        this.notifyIsland(`⚡ Compositor: 120Hz • CPU: ${this.systemMetrics.cpu}%`);
+        polyAudio.playChime();
+      });
+    }
+
+    menu.querySelector('#tray-action-quit')?.addEventListener('click', () => {
+      menu.classList.add('hidden');
+      this.closeWindow(win.id, true);
+      this.notifyIsland(`🛑 Terminated ${win.title}`);
+    });
+
+    // Position menu clamped within viewport
+    menu.classList.remove('hidden');
+    const menuWidth = 220;
+    const menuHeight = menu.offsetHeight || 140;
+    const posX = Math.max(10, Math.min(window.innerWidth - menuWidth - 10, x - 20));
+    const posY = Math.max(40, Math.min(window.innerHeight - menuHeight - 10, y + 10));
+
+    menu.style.left = `${posX}px`;
+    menu.style.top = `${posY}px`;
+  }
+
+  restoreFromTray(id) {
+    const win = this.windows.get(id);
+    if (!win) return;
+
+    win.isBackgroundRunning = false;
+    if (win.element) {
+      win.element.style.display = 'flex';
+    }
+
+    if (win.workspace !== this.currentWorkspace) {
+      this.switchWorkspace(win.workspace);
+    }
+
+    win.springScale.v = 0.4;
+    win.springScale.setTarget(1.0);
+    win.springOpacity.setTarget(1.0);
+
+    this.focusWindow(win.id);
+    polyAudio.playSpring();
+    this.notifyIsland(`🪟 Restored ${win.title}`);
+
+    this.updateSystemTray();
+    this.updateDockIndicators();
+    this.renderTaskbarWindowStrip();
+    this.wakeRenderLoop();
   }
 
   minimizeWindow(id) {
@@ -6493,8 +9611,22 @@ Process finished with exit code 0.`;
     win.isMinimized = true;
     win.springScale.setTarget(0.6);
     win.springOpacity.setTarget(0.0);
+
+    // Defocus if this was active window and focus next visible
+    if (this.activeWindowId === id) {
+      this.activeWindowId = null;
+      const visibleWins = Array.from(this.windows.values()).filter(w => !w.isMinimized && !w.isBackgroundRunning && w.workspace === this.currentWorkspace);
+      if (visibleWins.length > 0) {
+        this.focusWindow(visibleWins[visibleWins.length - 1].id);
+      } else {
+        const appTitleEl = document.getElementById('focused-app-name');
+        if (appTitleEl) appTitleEl.textContent = 'Poly OS';
+      }
+    }
+
     this.updateDockIndicators();
     this.renderTaskbarWindowStrip();
+    this.wakeRenderLoop();
     this.notifyIsland(`📦 Minimized ${win.title}`);
     polyAudio.playSpring();
   }
@@ -6505,10 +9637,19 @@ Process finished with exit code 0.`;
       this.switchWorkspace(targetWin.workspace);
     }
     this.activeWindowId = id;
+    this.windowZCounter = (this.windowZCounter || 100) + 1;
+    if (this.windowZCounter > 500) {
+      const sorted = Array.from(this.windows.values()).sort((a, b) => (parseInt(a.element?.style?.zIndex) || 10) - (parseInt(b.element?.style?.zIndex) || 10));
+      sorted.forEach((w, idx) => {
+        if (w.element) w.element.style.zIndex = 10 + idx * 2;
+      });
+      this.windowZCounter = 10 + sorted.length * 2 + 1;
+    }
+
     this.windows.forEach((w, wid) => {
       if (wid === id) {
         w.element.classList.add('focused');
-        w.element.style.zIndex = 100;
+        w.element.style.zIndex = this.windowZCounter;
         w.isFrozen = false;
         w.element.classList.remove('frozen');
         w.lastActiveTime = Date.now();
@@ -6521,11 +9662,11 @@ Process finished with exit code 0.`;
         }
       } else {
         w.element.classList.remove('focused');
-        w.element.style.zIndex = 10;
       }
     });
     this.updateDockIndicators();
     this.renderTaskbarWindowStrip();
+    this.wakeRenderLoop();
     setTimeout(() => {
       const activeBtn = document.querySelector(`.dock-item[data-window-id="${id}"]`) ||
                         document.querySelector('#dock-pinned-apps .dock-item.active');
@@ -6573,10 +9714,10 @@ Process finished with exit code 0.`;
       topbarClose.addEventListener('click', (e) => {
         e.stopPropagation();
         polyAudio.playClick();
-        if (this.immersiveWindowId) {
-          this.closeWindow(this.immersiveWindowId);
-        } else if (this.activeWindowId) {
-          this.closeWindow(this.activeWindowId);
+        const targetId = this.immersiveWindowId || this.activeWindowId;
+        if (targetId) {
+          const force = e.shiftKey || e.altKey;
+          this.closeWindow(targetId, force);
         }
       });
     }
@@ -6586,10 +9727,9 @@ Process finished with exit code 0.`;
       topbarMin.addEventListener('click', (e) => {
         e.stopPropagation();
         polyAudio.playSpring();
-        if (this.immersiveWindowId) {
-          this.minimizeWindow(this.immersiveWindowId);
-        } else if (this.activeWindowId) {
-          this.minimizeWindow(this.activeWindowId);
+        const targetId = this.immersiveWindowId || this.activeWindowId;
+        if (targetId) {
+          this.minimizeWindow(targetId);
         }
       });
     }
@@ -6599,10 +9739,9 @@ Process finished with exit code 0.`;
       topbarRestore.addEventListener('click', (e) => {
         e.stopPropagation();
         polyAudio.playSpring();
-        if (this.immersiveWindowId) {
-          this.restoreMaximize(this.immersiveWindowId);
-        } else if (this.activeWindowId) {
-          this.restoreMaximize(this.activeWindowId);
+        const targetId = this.immersiveWindowId || this.activeWindowId;
+        if (targetId) {
+          this.restoreMaximize(targetId);
         }
       });
     }
@@ -6611,7 +9750,7 @@ Process finished with exit code 0.`;
       if (!document.body.classList.contains('immersive-mode')) return;
 
       // 1. Top bar edge reveal: cursor within top 10px or hovering inside top-bar
-      if (e.clientY <= 10) {
+      if (e.clientY <= 10 || (topBar && (topBar.contains(e.target) || e.clientY <= 40))) {
         clearTimeout(topBarTimeout);
         if (topBar) topBar.classList.add('revealed');
       } else if (e.clientY > 50 && !e.target.closest('#top-bar') && !document.querySelector('.system-menu-dropdown:not(.hidden)')) {
@@ -6728,6 +9867,12 @@ Process finished with exit code 0.`;
   }
 
   checkSnapZones(mouseX, mouseY) {
+    if (this.aeroSnapEnabled === false) {
+      this.hideSnapGhost();
+      this.activeSnapZone = null;
+      return;
+    }
+
     const b = this.getWorkspaceBounds();
     const margin = 24;
     const corner = 90;
@@ -6819,6 +9964,10 @@ Process finished with exit code 0.`;
     if (zone === 'left') zone = 'left-half';
     if (zone === 'right') zone = 'right-half';
     if (zone === 'top') zone = 'maximize';
+
+    if (this.aeroSnapEnabled === false && zone !== 'maximize') {
+      return;
+    }
 
     const b = this.getWorkspaceBounds();
 
@@ -6914,7 +10063,7 @@ Process finished with exit code 0.`;
         win.springY.setTarget(b.availY);
         win.springW.setTarget(colW);
         win.springH.setTarget(b.availH);
-        this.notifyIsland('🪟 Left Split Snap');
+        this.notify('Aero Snap Left', `${win.title} anchored to left 50% split.`, '🪟');
         if (triggerAssist) {
           setTimeout(() => this.triggerSnapAssist('right-half', win.id), 120);
         } else {
@@ -6925,7 +10074,7 @@ Process finished with exit code 0.`;
         win.springY.setTarget(b.availY);
         win.springW.setTarget(colW);
         win.springH.setTarget(b.availH);
-        this.notifyIsland('🪟 Right Split Snap');
+        this.notify('Aero Snap Right', `${win.title} anchored to right 50% split.`, '🪟');
         if (triggerAssist) {
           setTimeout(() => this.triggerSnapAssist('left-half', win.id), 120);
         } else {
@@ -6974,6 +10123,7 @@ Process finished with exit code 0.`;
       overlay.classList.remove('hidden');
       grid.innerHTML = '';
       this.windows.forEach(w => {
+        if (w.isBackgroundRunning) return; // Do not show hidden background tray apps in Exposé
         const card = document.createElement('div');
         card.className = 'expose-card';
         card.innerHTML = `
@@ -7046,14 +10196,14 @@ Process finished with exit code 0.`;
       this.windows.forEach(w => {
         const isCurrentActive = (w.id === this.activeWindowId);
         const elapsedInactive = (now - w.lastActiveTime) / 1000;
-        const hasLease = w.title.includes('Music'); // Music player lease!
+        const hasLease = w.title.includes('Music') || w.isBackgroundRunning || w.keepAlive; // Music & Keep-Alive Daemon Lease
 
         if (isCurrentActive) {
           activeCount++;
           w.isFrozen = false;
           w.element.classList.remove('frozen');
           ramUsage += 42;
-        } else if (!hasLease && elapsedInactive > 12) {
+        } else if (this.freezerEnabled !== false && !hasLease && elapsedInactive > 12) {
           frozenCount++;
           w.isFrozen = true;
           w.element.classList.add('frozen');
@@ -7071,7 +10221,7 @@ Process finished with exit code 0.`;
           row.style.justifyContent = 'space-between';
           row.innerHTML = `
             <span>${w.id + 100} • ${w.title.substring(0, 16)}</span>
-            <span style="color:${w.isFrozen ? '#64d2ff' : '#30d158'}">${w.isFrozen ? 'FROZEN' : (hasLease ? 'LEASE' : 'ACTIVE')}</span>
+            <span style="color:${w.isBackgroundRunning ? '#bf5af2' : (w.isFrozen ? '#64d2ff' : '#30d158')}">${w.isBackgroundRunning ? 'DAEMON/TRAY' : (w.isFrozen ? 'FROZEN' : (hasLease ? 'LEASE' : 'ACTIVE'))}</span>
             <span>${isCurrentActive ? 100 : (w.isFrozen ? 0 : 10)}</span>
             <span>${w.isFrozen ? (this.zram.algorithm === 'zstd' ? '9 MB (zstd 4.3x)' : '13 MB (lz4 3.2x)') : '42 MB'}</span>
           `;
@@ -7106,13 +10256,82 @@ Process finished with exit code 0.`;
 
   startRenderLoop() {
     let lastTime = performance.now();
+    let lastFrameTime = 0;
+    this.isRenderLoopSleeping = false;
+    let consecutiveRestFrames = 0;
+
     const frame = (now) => {
+      if (this.isRenderLoopSleeping) return;
+
+      // In Low Power Mode, throttle frame loop to 60 FPS (16.6ms intervals) for true battery conservation
+      if (this.powerMode === 'low') {
+        if (now - lastFrameTime < 16.0) {
+          requestAnimationFrame(frame);
+          return;
+        }
+      }
+      lastFrameTime = now;
       const dt = Math.min((now - lastTime) / 1000, 0.033);
       lastTime = now;
 
+      let anyMoving = false;
       this.windows.forEach(w => {
-        w.update(dt);
+        if (w.update(dt)) {
+          anyMoving = true;
+        }
       });
+
+      if (!anyMoving) {
+        consecutiveRestFrames++;
+        if (consecutiveRestFrames > 10) {
+          this.isRenderLoopSleeping = true;
+          return; // Compositor idle sleep: Halts RAF loop to conserve battery
+        }
+      } else {
+        consecutiveRestFrames = 0;
+      }
+
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  wakeRenderLoop() {
+    if (!this.isRenderLoopSleeping) return;
+    this.isRenderLoopSleeping = false;
+    let lastTime = performance.now();
+    let lastFrameTime = 0;
+    let consecutiveRestFrames = 0;
+
+    const frame = (now) => {
+      if (this.isRenderLoopSleeping) return;
+
+      if (this.powerMode === 'low') {
+        if (now - lastFrameTime < 16.0) {
+          requestAnimationFrame(frame);
+          return;
+        }
+      }
+      lastFrameTime = now;
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+
+      let anyMoving = false;
+      this.windows.forEach(w => {
+        if (w.update(dt)) {
+          anyMoving = true;
+        }
+      });
+
+      if (!anyMoving) {
+        consecutiveRestFrames++;
+        if (consecutiveRestFrames > 10) {
+          this.isRenderLoopSleeping = true;
+          return;
+        }
+      } else {
+        consecutiveRestFrames = 0;
+      }
 
       requestAnimationFrame(frame);
     };
@@ -7120,9 +10339,10 @@ Process finished with exit code 0.`;
   }
 
   seedDefaultApps() {
-    this.launchApp('files');
-    setTimeout(() => this.launchApp('browser'), 150);
-    setTimeout(() => this.launchApp('notes'), 300);
+    // Clean desktop on refresh: Do NOT auto-launch windows or clutter screen
+    setTimeout(() => {
+      this.notify('Welcome to Poly OS', '120Hz ProMotion compositor and hybrid desktop are ready.', '⚡', null);
+    }, 800);
   }
 }
 

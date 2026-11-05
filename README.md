@@ -1,18 +1,20 @@
 # Poly OS 🌐
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Poly%20OS-v3.0%20Preview-0a84ff?style=for-the-badge&logo=linux&logoColor=white" alt="Poly OS Version" />
+  <img src="https://img.shields.io/badge/Poly%20OS-v4.0%20Stable-0a84ff?style=for-the-badge&logo=linux&logoColor=white" alt="Poly OS Version" />
   <img src="https://img.shields.io/badge/Compositor-Rust%20%2B%20Smithay%20DRM%2FKMS-30d158?style=for-the-badge&logo=rust&logoColor=white" alt="Rust Compositor" />
   <img src="https://img.shields.io/badge/Renderer-GLES%203.1%20%2B%20Vulkan-ff375f?style=for-the-badge&logo=opengl&logoColor=white" alt="GLES Renderer" />
   <img src="https://img.shields.io/badge/Kernel-Linux%20cgroups%20v2-ff9f0a?style=for-the-badge&logo=tux&logoColor=white" alt="cgroups v2" />
   <img src="https://img.shields.io/badge/Memory-Sub--250MB%20ZRAM-bf5af2?style=for-the-badge" alt="ZRAM Footprint" />
   <img src="https://img.shields.io/badge/Display-120Hz%20Adaptive%20VSync-64d2ff?style=for-the-badge" alt="120Hz VSync" />
+  <img src="https://img.shields.io/badge/Multi--Monitor-Dual%20Display%20Ready-34c759?style=for-the-badge" alt="Multi-Monitor" />
+  <img src="https://img.shields.io/badge/Tests-50%2B%20Pass%20(100%25)-30d158?style=for-the-badge" alt="Test Suite" />
   <img src="https://img.shields.io/badge/Live%20ISO-GitHub%20Actions%20CI%2FCD-34c759?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI/CD ISO Pipeline" />
   <img src="https://img.shields.io/badge/License-MIT-gray?style=for-the-badge" alt="License" />
 </p>
 
 <p align="center">
-  <strong>The ultra-lightweight hybrid desktop operating system marrying iOS tactile fluidity with Windows multitasking power — running directly on DRM/KMS hardware with GPU-accelerated frosted-glass rendering.</strong>
+  <strong>The ultra-lightweight hybrid desktop operating system marrying iOS tactile fluidity with Windows multitasking power — running directly on DRM/KMS hardware with GPU-accelerated frosted-glass rendering, dual-display support, and a 13-app ecosystem.</strong>
 </p>
 
 ---
@@ -30,6 +32,8 @@ Poly OS bridges this gap with:
 4. **Standardized 16px Aero Snap & FancyZones Tiling Grid**: Predictable half-screen, quarter-corner, and custom grid snapping with isolated corner drop shadows.
 5. **DRM/KMS Direct Rendering**: No X11 dependency — the compositor talks directly to the GPU via Linux DRM/KMS with EGL/GLES 3.1 and optional Vulkan.
 6. **Frosted-Glass GLSL Shaders**: Real-time 13-tap Gaussian blur with tinted alpha compositing for window borders, powered by a separable two-pass GPU pipeline.
+7. **Multi-Monitor Extended Desktop**: Seamless dual-display support with BroadcastChannel window transit, draggable monitor topology, and per-display refresh rates.
+8. **Keep-Alive Background Process Tray**: Music, Terminal, and Telemetry apps survive window close, running as background daemons with full system tray management.
 
 ---
 
@@ -70,7 +74,8 @@ Poly OS bridges this gap with:
 </p>
 
 - **Quick Look Preview (Spacebar)**: Instant spacebar preview for images, documents, and code files.
-- **Live Wallpaper Engine**: Toggle real-time animated Cupertino shaders or switch between 4 curated vector colorways (*Cupertino Glass*, *Redmond Horizon*, *Nordic Aurora*, *Cyber Dusk*).
+- **Next Live Wallpaper (`L`)**: Cycle through real-time animated canvas shader wallpapers (Aurora, Particles, Cupertino Glass, Off).
+- **Next Static Theme (`W`)**: Rotate between 4 curated vector HDR colorways (*Cupertino Glass*, *Redmond Horizon*, *Nordic Aurora*, *Cyber Dusk*).
 - **FancyZones Tiling Layouts (`Win + Z`)**: Launch customizable grid zones for power-user screen organization.
 - **Toggle Desktop Widgets**: Instantly hide or reveal desktop widgets to keep workspaces distraction-free.
 
@@ -83,10 +88,11 @@ Poly OS bridges this gap with:
   <img src="docs/screenshots/control_center.png" alt="Poly OS Control Center" width="95%" />
 </p>
 
-- **Quick Action Toggles**: 1-click toggles for Wi-Fi, Bluetooth, PolyDrop, and Magnetic Aero Snap.
-- **Interactive ProMotion Sliders**: Smooth volume and brightness control bars.
+- **Quick Action Toggles**: 1-click toggles for Wi-Fi, Bluetooth, PolyDrop, Magnetic Aero Snap, Dark Mode, and Desktop Widgets — all synced with topbar indicator pills and Settings app checkboxes.
+- **Interactive ProMotion Sliders**: Smooth volume and brightness control bars with screen brightness overlay.
 - **Integrated Now Playing Media Controller**: Native spatial audio playback controls directly tied to the Poly Audio Engine.
 - **Poly Energy Engine Profile Switcher**: Instantly switch between **Eco** (aggressive 60Hz freeze), **Balanced**, and **Turbo 120Hz** performance profiles.
+- **Live System Status**: Real-time synchronized RAM Pool, CPU Load, and Display Hz telemetry snapshot.
 
 ---
 
@@ -97,7 +103,7 @@ Poly OS bridges this gap with:
   <img src="docs/screenshots/system_menu.png" alt="Poly OS System Menu" width="95%" />
 </p>
 
-- **System Preferences**: Full split-pane Settings app for display refresh rates, acoustics, multitasking springs, and ZRAM caches.
+- **System Preferences**: Full split-pane Settings app with 7 tabs for display, appearance, wallpapers, energy, multitasking, storage, and about.
 - **Activity Monitor & Process Supervisor**: Deep inspection of background cgroups processes.
 - **1-Click PWA Installation**: Install Poly OS as a native standalone desktop app on Chrome, Edge, and Safari.
 
@@ -112,6 +118,8 @@ poly-os/
 │   │   ├── bug_report.yml            # Structured bug report form (component picker, 120Hz/60Hz)
 │   │   ├── feature_request.yml       # RFC / enhancement proposal form
 │   │   └── config.yml                # Template configuration & Discussions link
+│   ├── workflows/
+│   │   └── build-iso.yml             # CI/CD Live ISO pipeline
 │   └── pull_request_template.md      # Contributor PR checklist & subsystem checkboxes
 ├── architecture/
 │   └── SPECIFICATION.md              # Complete architectural blueprint & math formulas
@@ -133,13 +141,20 @@ poly-os/
 ├── poly-daemon/                      # 🔋 Battery & lifecycle supervisor in Python
 │   ├── polyd.py                      #    cgroups v2 freezer + ZRAM telemetry REST API
 │   └── polyd.toml                    #    User & system daemon configuration file
-├── poly-shell/                       # 🖥️ Interactive Web Shell (120Hz Spring UI)
-│   ├── index.html                    #    Shell DOM architecture
-│   ├── style.css                     #    Glassmorphic layout & gap system
-│   ├── shell.js                      #    Physics engine, window manager & state store
+├── poly-shell/                       # 🖥️ Interactive Web Shell (120Hz Spring UI) — 15,600+ LOC
+│   ├── index.html                    #    Shell DOM architecture (860+ lines)
+│   ├── style.css                     #    Glassmorphic layout & gap system (5,400+ lines)
+│   ├── shell.js                      #    Physics engine, window manager, 13 apps (10,300+ lines)
+│   ├── display2.html                 #    Secondary monitor simulation window
+│   ├── sw.js                         #    Service Worker for offline PWA caching
 │   └── manifest.json                 #    PWA metadata & desktop icons
 ├── iso-build/                        # 💿 Bootable Live ISO pipeline
 │   └── build-iso.sh                  #    Musl/Alpine Linux rootfs mastering script
+├── test_issue17.js                   # 🧪 Keep-alive tray lifecycle tests
+├── test_issue18.js                   # 🧪 Audio, stacking, accessibility, PID tests
+├── test_issue19.js                   # 🧪 8-dir resize, compositor idle sleep, VFS tests
+├── test_issue20_toggles_and_window_lifecycle.js  # 🧪 Toggle controls & window lifecycle tests
+├── test_runtime_audit.js             # 🧪 Full runtime DOM boot & integration audit
 ├── preview.py                        # Zero-dependency local preview runner
 ├── CONTRIBUTING.md                   # Contributor guide: setup, standards, PR workflow
 └── README.md
@@ -174,7 +189,7 @@ The native Wayland compositor runs directly on Linux hardware via DRM/KMS — no
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    Poly Compositor v0.2                      │
+│                    Poly Compositor v0.3                       │
 │                                                              │
 │  ┌───────────┐    ┌──────────────┐    ┌───────────────────┐  │
 │  │ libseat   │──▶│ DRM Backend   │──▶│ CRTC / Connector  │  │
@@ -197,7 +212,7 @@ The native Wayland compositor runs directly on Linux hardware via DRM/KMS — no
 | Module | Lines | Description |
 |--------|-------|-------------|
 | [`main.rs`](poly-compositor/src/main.rs) | 260+ | 7-phase boot sequence: DRM probe → EGL init → Wayland globals → glass shader compile → demo windows → snap test → 120Hz VSync loop |
-| [`backend.rs`](poly-compositor/src/backend.rs) | 310+ | `OutputConfig` (DPI/scale), `VSyncScheduler` (adaptive 120→60Hz), `RendererContext` (GPU caps), `PolyCompositorState` (window map, focus stack) |
+| [`backend.rs`](poly-compositor/src/backend.rs) | 380+ | `OutputConfig` (DPI/scale), `VSyncScheduler` (adaptive 120→60Hz), `RendererContext` (GPU caps), `PolyCompositorState` (window map, focus stack), dual-output topology |
 | [`shader.rs`](poly-compositor/src/shader.rs) | 230+ | GLSL pipeline: fullscreen vertex, 13-tap separable Gaussian blur, frosted-glass composite (saturation + tint + noise grain) |
 | [`physics.rs`](poly-compositor/src/physics.rs) | 150 | `Spring1D` / `Spring2D` / `SpringConfig` — semi-implicit Euler integration |
 | [`window.rs`](poly-compositor/src/window.rs) | 150 | `PolyWindow` / `SnapZone` — 8-zone magnetic snap with spring-animated transitions |
@@ -298,35 +313,122 @@ python polyd.py --set-algorithm zstd
 
 ## 🖥️ Interactive Web Shell (`poly-shell`)
 
-The web shell is a fully interactive browser-based preview of the Poly OS desktop experience.
+The web shell is a fully interactive browser-based preview of the Poly OS desktop experience, comprising **15,600+ lines of code** across HTML, CSS, and JavaScript.
 
-### Built-in Applications
+### Built-in Applications (13 Apps)
 
-| App | Features |
-|-----|----------|
-| **Poly Terminal** | `neofetch`, `ps`, `top`, `kill`, `matrix`, `ls`, `cat`, `theme`, `power` — with command history |
-| **Files Explorer** | Virtual filesystem, breadcrumb navigation, back/forward history, Quick Look preview, search filter |
-| **Music Player** | Web Audio synthesizer + real-time 32-band canvas visualizer |
-| **Code Studio** | Multi-tab editor with syntax highlighting (Rust, Python, JS, HTML, Markdown), line numbers, bracket auto-close, sandbox runner with timing |
-| **System Settings** | Display, ZRAM, performance profiles, about system |
+| App | Icon | Features |
+|-----|------|----------|
+| **Files Explorer** | 📁 | Virtual filesystem (PolyVFS) with nested subfolders, breadcrumb navigation, back/forward history, Quick Look preview, search filter, drag & drop |
+| **Poly Browser** | 🌐 | URL bar with navigation (back, forward, reload), homepage, embedded iframe renderer |
+| **Poly Terminal** | ⌨️ | `neofetch`, `ps`, `top`, `kill`, `matrix`, `ls`, `cat`, `cd`, `theme`, `power`, `clear` — with command history and arrow key recall |
+| **Notes** | 📝 | Rich text editor with inter-app drag & drop text insertion, file attachment links |
+| **Music Player** | 🎵 | Web Audio synthesizer + real-time 32-band canvas visualizer, multi-track playlist, keep-alive background playback |
+| **Process Monitor** | 📊 | Live synchronized system metrics (CPU, RAM, temperature, refresh rate), per-process PID table with kill support |
+| **Code Studio** | 💻 | Multi-tab editor with syntax highlighting (Rust, Python, JS, HTML, Markdown), line numbers, bracket auto-close, sandbox runner with timing |
+| **System Settings** | ⚙️ | 7-tab split-pane app: Appearance, Display & 120Hz, Wallpapers & Sound, Energy Engine, Multitasking, Storage & ZRAM, About |
+| **Poly App Store** | 🏪 | Browse curated categories, install third-party apps (Canvas, Arcade, Calculator) with simulated package verification |
+| **Canvas Studio** | 🎨 | Freeform drawing app with color picker, brush sizes, and eraser (installable from App Store) |
+| **Poly Arcade** | 🕹️ | Built-in Pong game with keyboard controls and AI opponent (installable from App Store) |
+| **Calculator** | 🧮 | Standard scientific calculator with display history (installable from App Store) |
+| **Quick Look** | 👁️ | Spacebar-triggered file preview modal for images, code, and documents |
 
 ### Window Management
 
-| Feature | Trigger |
-|---------|---------|
-| **Aero Snap** | Drag to edges/corners |
-| **Snap Assist** | Auto-suggests split partner |
-| **FancyZones** | `Win + Z` or `Shift + drag` |
-| **Alt+Tab Switcher** | `Alt + Tab` glass HUD |
-| **App Exposé** | `Win + Tab` / `Ctrl + Tab` |
-| **Workspace Slide** | 120Hz spring transitions |
+| Feature | Trigger | Description |
+|---------|---------|-------------|
+| **Aero Snap** | Drag to edges/corners | Magnetic half-screen and quarter-corner snapping with 16px gaps |
+| **Snap Assist** | Auto after snap | Suggests split partner from remaining windows |
+| **Snap Layouts Flyout** | Hover maximize button | Visual grid picker for snap zones |
+| **FancyZones** | `Win + Z` or `Shift + drag` | Customizable tiling layouts (columns, rows, grid, widescreen, golden ratio) |
+| **Alt+Tab Switcher** | `Alt + Tab` | Glassmorphic HUD with window preview cards |
+| **App Exposé** | `Win + Tab` / `Ctrl + Tab` | 3D overview grid of all running windows |
+| **Workspace Slide** | `Ctrl + ←/→` | 120Hz spring-animated virtual desktop transitions |
+| **8-Dir Resize** | Drag edges/corners | N, S, E, W, NW, NE, SW, SE resize handles with cursor feedback |
+| **Close Window** | `✕` / `Ctrl+W` / `Alt+F4` | Spring exit animation + defocus fallback; keep-alive apps hide to tray |
+| **Force Quit** | `Shift+✕` or double-click `✕` | Terminates keep-alive daemons immediately |
+| **Immersive Mode** | Maximize (topbar integration) | Top status bar merges with window titlebar |
+| **Multi-Monitor Transit** | Drag to right edge | Transfers window to secondary display via BroadcastChannel |
 
 ### Live Wallpaper Engine
 
-Three real-time canvas shader wallpapers:
+Three real-time canvas shader wallpapers with DPI-aware rendering and intelligent pause:
 - **`aurora`** — Harmonic flowing sine waves (cyan, emerald, purple)
 - **`particles`** — 55 interactive nodes with cursor-reactive connections
 - **`cupertino`** — Breathing radial glassmorphic gradient
+- **`off`** — Static wallpaper only (saves GPU cycles)
+
+Wallpaper rendering automatically pauses when:
+- The browser tab is hidden (`document.hidden`)
+- A maximized window obscures the desktop
+
+### Centralized Toggle System
+
+All toggle controls are bidirectionally synchronized across the Control Center, Topbar indicator pills, and Settings App:
+
+| Toggle | Control Center | Topbar | Settings | localStorage Key |
+|--------|---------------|--------|----------|-----------------|
+| Wi-Fi | `#toggle-wifi` | `#topbar-wifi` | — | `poly_wifi_enabled` |
+| Bluetooth | `#toggle-bluetooth` | `#topbar-bluetooth` | — | `poly_bluetooth_enabled` |
+| PolyDrop | `#toggle-airdrop` | — | — | `poly_drop_mode` |
+| Aero Snap | `#toggle-stage` | — | `#snap-toggle` | `poly_aero_snap` |
+| Process Freezer | — | — | `#freezer-toggle` | `poly_freezer_enabled` |
+| GPU Acceleration | — | — | `#hw-accel-toggle` | `poly_hw_accel` |
+| Display Scale | — | — | `#display-scale-select` | `poly_display_scale` |
+| Dark Mode | `#toggle-appearance-theme` | — | Appearance cards | `poly_appearance_mode` |
+| Desktop Widgets | `#toggle-desktop-widgets` | — | — | `poly_desktop_widgets_visible` |
+
+### Multi-Monitor Extended Desktop
+
+Poly OS supports a simulated dual-display extended desktop:
+
+- **Secondary Display Window** (`display2.html`): Opens as a separate browser window synchronized via `BroadcastChannel`.
+- **Draggable Topology Canvas**: Click-to-swap monitor arrangement in Settings → Display tab.
+- **Window Transfer**: Drag any window to the right screen edge to transit it to Display 2.
+- **Recall All**: One-click recall of all windows back to the primary display.
+- **Independent Refresh Rates**: Display 1 at 120Hz, Display 2 at 60Hz.
+
+### Dock System
+
+The dock morphs between two modes persisted in `localStorage`:
+
+| Mode | Style | Activation |
+|------|-------|------------|
+| **Floating Pill** | Rounded frosted-glass island centered at bottom | Default, or via dock settings / Spotlight |
+| **Full Taskbar** | Edge-to-edge bar with Start button and window strip | Toggle in dock settings, or via Spotlight search |
+
+Features:
+- **Running Indicators**: Dot badges under pinned apps with active window count.
+- **Window Strip**: In taskbar mode, unpinned running windows appear in a scrollable strip.
+- **Auto-Scaling**: Icon sizes dynamically compress from 42px → 18px as more apps open.
+- **Dock Alignment**: Center or Left alignment, persisted across sessions.
+- **Dock Settings Popup**: Segmented control for mode and alignment.
+
+---
+
+## 🧪 Test Suite
+
+Poly OS includes a comprehensive automated test suite with **50+ test cases** across 5 test files:
+
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| `test_issue17.js` | 4 | Keep-alive tray lifecycle, background restore, force quit, regular close |
+| `test_issue18.js` | 10 | Audio synthesis, stacking hierarchy, search wiring, drag & drop, PID alignment, layout thrashing, defocus, media controls, accessibility, Spotlight navigation |
+| `test_issue19.js` | 10 | 8-directional resize handles, compositor idle sleep, DPI-aware wallpaper, VFS subfolders, breadcrumb navigation, folder traversal |
+| `test_issue20_toggles_and_window_lifecycle.js` | 15 | Titlebar elevation, keyboard close shortcuts, repeat close, tray maximized cleanup, brightness overlay, Wi-Fi/Bluetooth/PolyDrop/Snap toggles, Settings wiring, freezer toggle, dock persistence, compositor wake, App Store mapping, context menu, audio mute, multi-display close |
+| `test_runtime_audit.js` | 12+ | Full runtime DOM mock boot, `window.polyOS` global assignment, live wallpaper cycling with localStorage persistence, context menu auto-dismiss, window close button click-through, keep-alive tray behavior, double-close force quit, Wi-Fi/Bluetooth/PolyDrop/Snap/Freezer/HW Accel toggle round-trips |
+
+Run the full test matrix:
+
+```bash
+node test_issue17.js
+node test_issue18.js
+node test_issue19.js
+node test_issue20_toggles_and_window_lifecycle.js
+node test_runtime_audit.js
+```
+
+---
 
 ## 💿 Automated Live Bootable ISO Pipeline (`iso-build`)
 
@@ -372,18 +474,39 @@ cd poly-compositor
 cargo run
 ```
 
-### Key Shortcuts to Test:
-- **`Cmd / Win + Space`**: Open Global Spotlight / Start Launcher.
-- **`Win + Tab` / `Ctrl + Tab`**: Toggle 3D App Exposé overview.
-- **`Alt + Tab`**: Fast Glass Window Switcher HUD.
-- **`Spacebar`**: Quick Look file preview when an icon is selected.
-- **`Win + Z`**: Trigger FancyZones multi-window tiling layouts.
-- **`Shift + Drag`**: Live FancyZones grid overlay with zone highlighting.
-- **`Win + 1..4`**: Snap active window to Zone 1–4 of current layout.
-- **Drag window to top edge**: Magnetic Aero Maximize.
-- **Drag window to left / right**: 50% split-screen snap with strict 16px gaps.
-- **Drag window to corners**: 25% quarter corner snap.
-- **`L`**: Toggle live wallpaper engine.
+### Key Shortcuts to Test
+
+| Category | Shortcut | Action |
+|----------|----------|--------|
+| **Launcher** | `Cmd/Win + Space` | Open Global Spotlight / Start Launcher |
+| **Window Switching** | `Alt + Tab` | Fast Glass Window Switcher HUD |
+| **Exposé** | `Win + Tab` / `Ctrl + Tab` | Toggle 3D App Exposé overview |
+| **Quick Look** | `Spacebar` | Preview selected desktop file |
+| **FancyZones** | `Win + Z` | Trigger tiling layout overlay |
+| **FancyZones (drag)** | `Shift + Drag` | Live grid overlay with zone highlighting |
+| **Zone Snap** | `Win + 1..4` | Snap active window to Zone 1–4 |
+| **Aero Snap** | Drag to top edge | Magnetic maximize |
+| **Split Snap** | Drag to left/right edge | 50% split-screen with 16px gaps |
+| **Corner Snap** | Drag to corners | 25% quarter snap |
+| **Live Wallpaper** | `L` | Cycle live wallpaper engine |
+| **Static Theme** | `W` | Cycle static wallpaper theme |
+| **Close Window** | `Ctrl + W` / `Alt + F4` | Close active window (keep-alive apps hide to tray) |
+| **Minimize** | `Ctrl + M` | Minimize active window with spring animation |
+| **Workspaces** | `Ctrl + ←/→` | Switch virtual desktop |
+| **Multi-Monitor** | `Alt + Shift + →` | Transfer window to secondary display |
+
+---
+
+## 📋 Changelog (Issues Resolved)
+
+| Issue | Title | Key Deliverables |
+|-------|-------|-----------------|
+| #15 | Multi-Monitor Extended Desktop | `PolyDisplayManager`, `BroadcastChannel` sync, `display2.html`, draggable topology canvas, per-display refresh rates |
+| #16 | Universal Inter-App Drag & Drop | `HTML5 DnD` + custom `dragPayload` system, file/text/selection drag between Files, Code, Notes, Terminal |
+| #17 | Keep-Alive Background Process Tray | Music/Terminal/Telemetry survive close, system tray with context menus, restore-from-tray, force quit |
+| #18 | Audio, Polish & Accessibility | `PolyAudio` Web Audio synthesis, `aria-live` regions, focus rings, PID alignment, layout thrashing elimination |
+| #19 | 8-Directional Resize & Compositor Optimization | 8 resize handles (N/S/E/W/NW/NE/SW/SE), compositor idle sleep, DPI-aware wallpaper, PolyVFS nested subfolders |
+| #20 | Toggle Controls & Shell Resilience | Centralized Wi-Fi/BT/PolyDrop/Snap/Freezer/HW toggles, brightness overlay, titlebar z-index fix, keyboard close shortcuts, dock silent init |
 
 ---
 
@@ -406,6 +529,13 @@ cargo run                          # Run demo
 # Daemon development
 python polyd.py --server --port 5174   # REST API server
 python polyd.py --zram-stats           # CLI inspection
+
+# Run test suite
+node test_issue17.js
+node test_issue18.js
+node test_issue19.js
+node test_issue20_toggles_and_window_lifecycle.js
+node test_runtime_audit.js
 ```
 
 ---
